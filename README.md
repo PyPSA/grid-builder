@@ -2,7 +2,9 @@
 
 A modular Snakemake workflow for constructing and validating power grid models using OpenStreetMap data.
 
-<!-- Place an attractive image of module outputs here -->
+<p align="center">
+  <img src="./figures/map_europe.png" width="50%">
+</p>
 
 ## About
 
