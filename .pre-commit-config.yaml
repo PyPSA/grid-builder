@@ -1,0 +1,48 @@
+default_language_version:
+  python: python3
+
+repos:
+  # Generic 'file quality' testing
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Machine-friendliness
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      # Repo quality
+      - id: check-added-large-files
+        args: [--enforce-all]
+        exclude: ^pixi\.lock$
+      - id: forbid-submodules
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-merge-conflict
+      - id: debug-statements
+      # Detect config. file issues
+      - id: check-json
+      - id: check-yaml
+        args: [--unsafe]
+
+  # Python file formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # Snakemake file formatting
+  - repo: https://github.com/snakemake/snakefmt
+    rev: v1.1.0
+    hooks:
+      - id: snakefmt
+
+  # Spelling
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+        files: .*\.(py|smk|md)$|^Snakefile$
+
+ci:  # https://pre-commit.ci/
+  autoupdate_schedule: quarterly

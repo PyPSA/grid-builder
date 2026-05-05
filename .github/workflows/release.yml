@@ -1,0 +1,11 @@
+name: Release
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  release-workflow:
+    permissions:
+      contents: write
+    uses: modelblocks-org/data-module-template/.github/workflows/template-release.yml@latest

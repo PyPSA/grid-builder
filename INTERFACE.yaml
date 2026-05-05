@@ -1,0 +1,48 @@
+# Module Input-Output structure for automated docs generation
+pathvars:
+  snakemake_defaults:
+    logs:
+      default: "<logs>"
+      description: location of snakemake log files.
+    resources:
+      default: "<resources>"
+      description: "location of module resource (input) files."
+    results:
+      default: "<results>"
+      description: "location of module result (output) files."
+  user_resources:
+    user_message:
+      default: "<resources>/user/user_message.md"
+      description: Example file emulating external files requested from a user.
+  results:
+    combined_text:
+      default: "<results>/combined_text.md"
+      description: Example file emulating module results.
+
+# Wildcard example:
+#
+# pathvars:
+#   snakemake_defaults:
+#     logs:
+#       default: "<logs>"
+#       description: location of rule log files.
+#     resources:
+#       default: "<resources>"
+#       description: "location of module resource files."
+#     results:
+#       default: "<results>"
+#       description: "location of module results."
+#   user_resources:
+#     shapes:
+#       default: "<resources>/user/{shapes}/shapes.parquet"
+#       description: region-specific polygons to process.
+#     proxy:
+#       default: "<resources>/user/proxy.tiff"
+#       description: global proxy raster file.
+#   results:
+#     capacity:
+#       default: "<results>/{shapes}/{scenario}/capacity.parquet"
+#       description: Module results
+# wildcards:
+#   shapes: resolution case
+#   scenario: configured scenario case

@@ -1,0 +1,4 @@
+grid_builder:
+  dummy_text: >-
+    Configuration values (like this one) are also external to the module!
+    This gives users a lot of flexibility in how they apply your methodology to solve their particular needs.

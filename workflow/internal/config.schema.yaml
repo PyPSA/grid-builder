@@ -1,0 +1,8 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+description: "Schema for user-provided configuration files."
+type: object
+additionalProperties: false
+properties:
+  dummy_text:
+    description: A template example. Should be deleted in real applications.
+    type: string

@@ -1,0 +1,11 @@
+# Citation file
+# For more information, see:
+# https://citation-file-format.github.io/
+cff-version: 1.2.0
+message: If you use this software or data produced by it, please cite it using the metadata from this file.
+title: "grid-builder: Global power grid builder"
+repository: "https://github.com/PyPSA/grid_builder"
+license: MIT
+authors:
+  - given-names: Bobby
+    family-names: Xiong

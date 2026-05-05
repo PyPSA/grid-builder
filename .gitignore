@@ -1,0 +1,29 @@
+### OS-specific
+.DS_Store
+
+### Editors
+*~
+\#*\#
+**/.vscode
+.$*
+
+### Byte-compiled files
+__pycache__
+*.pyc
+
+### Environments
+.pixi/
+
+### Snakemake
+.snakemake/
+gurobi.log
+
+### Notebooks
+.ipynb_checkpoints
+
+# Ignore mutable folders
+**/logs/*
+**/resources/*
+**/results/*
+**/temp/*
+**/tmp/*

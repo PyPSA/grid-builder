@@ -1,0 +1,41 @@
+# !!!!! DO NOT MODIFY UNLESS ABSOLUTELY NECESSARY !!!!!
+# This workflow helps standardise integration tests across data modules
+name: Pull Request CI tests for Modelblocks data modules
+on:
+  pull_request:
+    branches:
+      - "main"
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.8.3
+      - name: Run integration tests
+        id: tests
+        run: pixi run test-integration
+        continue-on-error: true
+      - name: Run snakemake linting
+        id: linting
+        run: |
+          pixi run snakemake --lint --snakefile workflow/Snakefile
+          pixi run snakemake --lint --snakefile tests/integration/Snakefile
+        continue-on-error: true
+      - name: Save integration logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-logs-${{ matrix.os }}
+          path: tests/integration/resources/module/logs
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Fail if integration or linting failed
+        if: ${{ steps.tests.outcome == 'failure' || steps.linting.outcome == 'failure' }}
+        run: exit 1

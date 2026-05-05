@@ -1,0 +1,4 @@
+# snakemake settings for module cross-compatibility
+# DO NOT MODIFY
+software-deployment-method: conda
+use-conda: True
