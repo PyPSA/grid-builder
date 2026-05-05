@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Contributors to grid-builder <https://github.com/pypsa/grid-builder
+#
+# SPDX-License-Identifier: MIT
+
 ### OS-specific
 .DS_Store
 
@@ -27,3 +31,6 @@ gurobi.log
 **/results/*
 **/temp/*
 **/tmp/*
+
+# earth-osm cache
+data/earth-osm/

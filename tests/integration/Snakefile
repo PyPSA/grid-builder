@@ -2,36 +2,14 @@
 configfile: workflow.source_path("./test_config.yaml")
 
 
-# Emulate how another workflow might create inputs for this module.
-rule create_external_input:
-    output:
-        text_file="resources/user/user_message.md",
-    message:
-        "Example of a rule external to your module."
-    run:
-        from pathlib import Path
-        from textwrap import dedent
-
-        text = dedent(
-            """Modular workflows can be used by more than one project!
-            For example, this text comes from a file external to the module.
-            Try your best to make this workflow reusable so that others may benefit from your methods."""
-        )
-        file_path = Path(output.text_file)
-        with file_path.open("w") as f:
-            f.write(text)
-
-
 # Import the module and configure it.
 # `snakefile:` specifies the module. It can use file paths and special github(...) / gitlab(...) markers
 # `config`: specifies the module configuration.
 # `pathvars:` helps you re-wire where the module places files.
 module grid_builder:
     pathvars:
-        # Redirect specific user resources (inputs)
-        user_message=rules.create_external_input.output.text_file,
-        # Redirect specific module results (outputs)
-        combined_text="results/output/combined_text.md",
+        # Redirect OSM outputs
+        osm_out="resources/module/resources/automatic/osm/out",
         # Redirect intermediate files that are internal to the module
         logs="resources/module/logs",
         resources="resources/module/resources",
@@ -46,10 +24,15 @@ module grid_builder:
 use rule * from grid_builder as grid_builder_*
 
 
-# Request something from the module
+# Request OSM retrieval outputs from the module
 rule all:
     default_target: True
     input:
-        "results/output/combined_text.md",
+        expand(
+            "resources/module/resources/automatic/osm/out/{country}_{feature}.{ext}",
+            country="belgium",
+            feature=["substation", "line"],
+            ext=["csv", "geojson"],
+        ),
     message:
-        "A generic test case for your module."
+        "Retrieve OSM grid data by country and feature."

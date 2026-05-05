@@ -12,7 +12,7 @@ repos:
       # Repo quality
       - id: check-added-large-files
         args: [--enforce-all]
-        exclude: ^pixi\.lock$
+        exclude: ^(pixi\.lock|figures/.*)$
       - id: forbid-submodules
       - id: check-case-conflict
       - id: check-illegal-windows-names

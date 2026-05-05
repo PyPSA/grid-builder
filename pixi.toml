@@ -21,6 +21,7 @@ ruff = ">=0.9.9"
 snakefmt = ">=0.10.2"
 snakemake-minimal = ">=9.19.0"
 pytz = ">=2026.1.post1"
+earth-osm = ">=3.0.2"
 
 [tasks]
 test-integration = {cmd = "pytest tests/integration_test.py"}

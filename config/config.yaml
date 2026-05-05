@@ -1,2 +1,15 @@
-# A minimal example of how to configure this module
-dummy_text: This is a user input.
+countries:
+  - benin
+  - togo
+
+retrieve:
+  source: geofabrik
+  primary_name: power
+  features:
+    - substation
+    - line
+  force_redownload: false
+  mp: true
+  stream_backend: true
+  cache_primary: false
+  target_date: null

@@ -5,14 +5,10 @@ from snakemake.utils import min_version, validate
 min_version("9.19")
 
 
-# !!!!! IMPORTANT !!!!!
-# Define pathvars for all user resource files and result files
-# This allows users to re-wire how the module is used in their workflow with ease.
+# Define pathvars to expose OSM retrieval outputs for downstream use.
 pathvars:
-    # User resources
-    user_message="<resources>/user/user_message.md",
-    # Module results
-    combined_text="<results>/combined_text.md",
+    # OSM retrieval outputs by country and feature
+    osm_out="<resources>/automatic/osm/out",
 
 
 # Load the example configuration. This will be overridden by users.
@@ -28,8 +24,7 @@ with open(workflow.source_path("internal/settings.yaml"), "r") as f:
 
 
 # Add all your includes here.
-include: "rules/automatic.smk"
-include: "rules/dummy.smk"
+include: "rules/retrieve.smk"
 
 
 # Add additional files to be delivered alongside the workflow here.
