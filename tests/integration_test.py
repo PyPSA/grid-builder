@@ -31,7 +31,7 @@ def test_interface_file(module_path):
         "LICENSE",
         "README.md",
         "config/config.yaml",
-        "workflow/internal/config.schema.yaml",
+        "config/config.schema.json",
         "tests/integration/Snakefile",
     ],
 )

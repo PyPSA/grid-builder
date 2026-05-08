@@ -13,7 +13,8 @@ clio-tools = ">=2026.03.30"
 conda = ">=25.0.0"
 ipdb = ">=0.13.13"
 ipykernel = ">=6.29.5"
-jsonschema = ">=4.0.0"
+pydantic = ">=2.0"
+"ruamel.yaml" = ">=0.18"
 mypy = ">=1.15.0"
 pytest = ">=8.3.5"
 python = ">=3.12"
@@ -25,3 +26,4 @@ earth-osm = ">=3.0.2"
 
 [tasks]
 test-integration = {cmd = "pytest tests/integration_test.py"}
+generate-config = {cmd = "python workflow/scripts/_schema.py"}

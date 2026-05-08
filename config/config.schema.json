@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "countries": {
+      "default": [
+        "benin",
+        "togo"
+      ],
+      "description": "tbd",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "retrieve": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "geofabrik",
+          "description": "tbd",
+          "enum": [
+            "geofabrik",
+            "overpass"
+          ],
+          "type": "string"
+        },
+        "primary_name": {
+          "default": "power",
+          "description": "tbd",
+          "type": "string"
+        },
+        "features": {
+          "default": [
+            "substation",
+            "line"
+          ],
+          "description": "tbd",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "force_redownload": {
+          "default": false,
+          "description": "tbd",
+          "type": "boolean"
+        },
+        "mp": {
+          "default": true,
+          "description": "tbd",
+          "type": "boolean"
+        },
+        "stream_backend": {
+          "default": true,
+          "description": "tbd",
+          "type": "boolean"
+        },
+        "cache_primary": {
+          "default": false,
+          "description": "tbd",
+          "type": "boolean"
+        },
+        "target_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "tbd"
+        }
+      },
+      "description": "tbd"
+    }
+  },
+  "title": "ConfigSchema",
+  "type": "object"
+}

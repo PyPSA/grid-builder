@@ -1,6 +1,10 @@
-import yaml
+import sys
 
-from snakemake.utils import min_version, validate
+import yaml
+from snakemake.utils import min_version
+
+sys.path.insert(0, workflow.basedir)
+from scripts._schema import validate_config
 
 min_version("9.19")
 
@@ -15,8 +19,8 @@ pathvars:
 configfile: workflow.source_path("../config/config.yaml")
 
 
-# Validate the configuration using the schema file.
-validate(config, workflow.source_path("internal/config.schema.yaml"))
+# Validate the configuration using the Pydantic schema.
+config = validate_config(config)
 
 # Load internal settings separately so users cannot modify them.
 with open(workflow.source_path("internal/settings.yaml"), "r") as f:
