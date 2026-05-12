@@ -18,6 +18,7 @@ pathvars:
 # Default configuration file generated from pydantic schema.
 configfile: workflow.source_path("../config/config.yaml")
 
+
 config = validate_config(config)
 
 # Load internal settings separately so users cannot modify them.
