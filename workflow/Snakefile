@@ -12,7 +12,7 @@ min_version("9.19")
 # Define pathvars to expose OSM retrieval outputs for downstream use.
 pathvars:
     # OSM retrieval outputs by country and feature
-    osm_out="<resources>/automatic/osm/out",
+    osm_out="<resources>/osm/out",
 
 
 # Default configuration file generated from pydantic schema.
