@@ -59,7 +59,7 @@ To test a minimal example of a workflow using this module:
 ```shell
 pixi shell                          # activate this project's environment
 cd tests/integration/               # navigate to the integration example
-snakemake --use-conda --cores 2     # run the workflow!
+snakemake --cores 2                 # run the workflow!
 ```
 
 ## License
