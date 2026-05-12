@@ -3,10 +3,9 @@
   "properties": {
     "countries": {
       "default": [
-        "benin",
-        "togo"
+        "BE"
       ],
-      "description": "tbd",
+      "description": "List of countries to retrieve OSM data for",
       "items": {
         "type": "string"
       },
@@ -18,7 +17,7 @@
       "properties": {
         "source": {
           "default": "geofabrik",
-          "description": "tbd",
+          "description": "Retrieval backend for OSM data",
           "enum": [
             "geofabrik",
             "overpass"
@@ -27,7 +26,7 @@
         },
         "primary_name": {
           "default": "power",
-          "description": "tbd",
+          "description": "Primary OSM feature to retrieve (e.g., 'power')",
           "type": "string"
         },
         "features": {
@@ -35,7 +34,7 @@
             "substation",
             "line"
           ],
-          "description": "tbd",
+          "description": "OSM features to retrieve for each country",
           "items": {
             "type": "string"
           },
@@ -44,27 +43,28 @@
         },
         "force_redownload": {
           "default": false,
-          "description": "tbd",
+          "description": "Force refresh of cached data in earth-osm",
           "type": "boolean"
         },
         "mp": {
           "default": true,
-          "description": "tbd",
+          "description": "Enable multiprocessing in earth-osm",
           "type": "boolean"
         },
         "stream_backend": {
           "default": true,
-          "description": "tbd",
+          "description": "Enable streaming backend in earth-osm",
           "type": "boolean"
         },
         "cache_primary": {
           "default": false,
-          "description": "tbd",
+          "description": "Enable caching of primary feature data in earth-osm",
           "type": "boolean"
         },
         "target_date": {
           "anyOf": [
             {
+              "format": "date-time",
               "type": "string"
             },
             {
@@ -72,10 +72,10 @@
             }
           ],
           "default": null,
-          "description": "tbd"
+          "description": "Optional historical date for data retrieval in ISO 8601 datetime format"
         }
       },
-      "description": "tbd"
+      "description": "Configuration for OSM data retrieval using earth-osm"
     }
   },
   "title": "ConfigSchema",

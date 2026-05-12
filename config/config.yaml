@@ -2,8 +2,7 @@
 ---
 # yaml-language-server: $schema=./config.schema.json
 countries:
-- benin
-- togo
+- BE
 retrieve:
   source: geofabrik
   primary_name: power

@@ -6,13 +6,16 @@ defaults, schema, and validation.
 
 import json
 import math
-import re
 from collections.abc import Iterator
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from earth_osm.regions import get_all_valid_codes
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+
+_VALID_REGIONS: frozenset[str] = frozenset(get_all_valid_codes())
 
 
 class ConfigModel(BaseModel):
@@ -41,32 +44,55 @@ class RetrieveConfig(ConfigModel):
     model_config = ConfigDict(extra="forbid")
 
     source: Literal["geofabrik", "overpass"] = Field(
-        "geofabrik", description="tbd"
+        "geofabrik", description="Retrieval backend for OSM data"
     )
-    primary_name: str = Field("power", description="tbd")
+    primary_name: str = Field(
+        "power", description="Primary OSM feature to retrieve (e.g., 'power')"
+    )
     features: list[str] = Field(
         default=["substation", "line"],
-        description="tbd",
+        description="OSM features to retrieve for each country",
         min_length=1,
     )
-    force_redownload: bool = Field(False, description="tbd")
-    mp: bool = Field(True, description="tbd")
-    stream_backend: bool = Field(True, description="tbd")
-    cache_primary: bool = Field(False, description="tbd")
-    target_date: str | None = Field(None, description="tbd")
+    force_redownload: bool = Field(
+        False, description="Force refresh of cached data in earth-osm"
+    )
+    mp: bool = Field(True, description="Enable multiprocessing in earth-osm")
+    stream_backend: bool = Field(
+        True, description="Enable streaming backend in earth-osm"
+    )
+    cache_primary: bool = Field(
+        False, description="Enable caching of primary feature data in earth-osm"
+    )
+    target_date: datetime | None = Field(
+        None,
+        description="Optional historical date for data retrieval in ISO 8601 datetime format",
+    )
 
 
 class ConfigSchema(ConfigModel):
     model_config = ConfigDict(extra="forbid")
 
     countries: list[str] = Field(
-        default=["benin", "togo"],
-        description="tbd",
+        default=["BE"],
+        description="List of countries to retrieve OSM data for",
         min_length=1,
     )
+
+    @field_validator("countries")
+    @classmethod
+    def validate_country_identifiers(cls, v: list[str]) -> list[str]:
+        invalid = [c for c in v if c not in _VALID_REGIONS]
+        if invalid:
+            raise ValueError(
+                f"Unknown country identifier(s): {invalid}. "
+                "Use an English name (e.g. 'benin') or ISO 3166-1 alpha-2 code (e.g. 'BE')."
+            )
+        return v
+
     retrieve: RetrieveConfig = Field(
         default_factory=RetrieveConfig,
-        description="tbd",
+        description="Configuration for OSM data retrieval using earth-osm",
     )
 
 
@@ -97,9 +123,7 @@ def generate_config_defaults(path: str = "config/config.yaml") -> dict:
     yaml_writer.representer.add_representer(str, str_representer)
 
     data = CommentedMap()
-    data.yaml_set_start_comment(
-        "yaml-language-server: $schema=./config.schema.json"
-    )
+    data.yaml_set_start_comment("yaml-language-server: $schema=./config.schema.json")
 
     for key, value in defaults.items():
         data[key] = value

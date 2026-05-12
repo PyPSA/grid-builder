@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+
 rule retrieve_osm:
     output:
         csv=expand(
@@ -44,4 +45,4 @@ rule retrieve_osm_all:
             "<resources>/automatic/osm/out/{country}_{feature}.geojson",
             country=config["countries"],
             feature=config["retrieve"]["features"],
-        )
+        ),
