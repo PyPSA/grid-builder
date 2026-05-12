@@ -28,13 +28,13 @@ class ConfigModel(BaseModel):
         return getattr(self, key, default)
 
     def keys(self) -> Iterator[str]:
-        return iter(self.model_fields.keys())
+        return iter(type(self).model_fields.keys())
 
     def values(self) -> Iterator[Any]:
-        return (getattr(self, k) for k in self.model_fields.keys())
+        return (getattr(self, k) for k in type(self).model_fields.keys())
 
     def items(self) -> Iterator[tuple[str, Any]]:
-        return ((k, getattr(self, k)) for k in self.model_fields.keys())
+        return ((k, getattr(self, k)) for k in type(self).model_fields.keys())
 
 
 class RetrieveConfig(ConfigModel):
