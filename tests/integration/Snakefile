@@ -2,37 +2,20 @@
 configfile: workflow.source_path("./test_config.yaml")
 
 
-# Import the module and configure it.
-# `snakefile:` specifies the module. It can use file paths and special github(...) / gitlab(...) markers
-# `config`: specifies the module configuration.
-# `pathvars:` helps you re-wire where the module places files.
 module grid_builder:
     pathvars:
-        # Redirect OSM outputs
-        osm_out="resources/module/resources/automatic/osm/out",
-        # Redirect intermediate files that are internal to the module
-        logs="resources/module/logs",
-        resources="resources/module/resources",
-        results="resources/module/results",
+        resources="resources/grid-builder",
+        logs="logs/grid-builder",
     snakefile:
         "../../workflow/Snakefile"
     config:
         config["grid_builder"]
 
 
-# rename all module rules with a prefix, to avoid naming conflicts.
 use rule * from grid_builder as grid_builder_*
 
 
-# Request OSM retrieval outputs from the module
 rule all:
     default_target: True
     input:
-        expand(
-            "resources/module/resources/automatic/osm/out/{country}_{feature}.{ext}",
-            country="belgium",
-            feature=["substation", "line"],
-            ext=["csv", "geojson"],
-        ),
-    message:
-        "Retrieve OSM grid data by country and feature."
+        rules.grid_builder_retrieve_osm_all.input,

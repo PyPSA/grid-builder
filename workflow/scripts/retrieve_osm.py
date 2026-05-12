@@ -6,6 +6,7 @@
 
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,10 +32,9 @@ def retrieve_osm_data(
     mp: bool = True,
     stream_backend: bool = True,
     cache_primary: bool = False,
-    target_date: str | None = None,
+    target_date: datetime | None = None,
 ) -> None:
-    """
-    Retrieve OSM data for a single country using earth_osm.
+    """Retrieve OSM data for a single country using earth_osm.
 
     Parameters
     ----------
@@ -56,7 +56,7 @@ def retrieve_osm_data(
         Enable streaming backend. Default is True.
     cache_primary : bool, optional
         Cache primary data. Default is False.
-    target_date : str | None, optional
+    target_date : datetime.datetime | None, optional
         Target date for historical data. Default is None.
     """
     logger.info(f"Retrieving OSM data for {country} with features: {features}")
@@ -82,19 +82,36 @@ def retrieve_osm_data(
     logger.info(f"Successfully retrieved OSM data for {country}")
 
 
+def parse_target_date(target_date: datetime | str | None) -> datetime | None:
+    """Convert a YAML/snaked config value into the datetime earth_osm expects.
+
+    Parameters
+    ----------
+    target_date : datetime.datetime | str | None
+        The target date as a datetime object, ISO 8601 string, or None.
+
+    Returns:
+    -------
+    datetime.datetime | None
+        The target date as a datetime object, or None if not provided.
+    """
+    if target_date is None or isinstance(target_date, datetime):
+        return target_date
+    return datetime.fromisoformat(target_date)
+
+
 if __name__ == "__main__":
     if "snakemake" not in globals():
         from workflow.scripts._helpers import mock_snakemake
 
-        snakemake = mock_snakemake(
-            "retrieve_osm",
-            country="benin",
-        )
+        snakemake = mock_snakemake("retrieve_osm", country="benin")
 
     # Extract parameters
     country = snakemake.wildcards.country
     features = list(snakemake.params.features)
     base_dir = str(Path(snakemake.output.geojson[0]).parent.parent)
+
+    target_date = parse_target_date(snakemake.params.target_date)
 
     # Call main function
     retrieve_osm_data(
@@ -107,5 +124,5 @@ if __name__ == "__main__":
         mp=snakemake.params.mp,
         stream_backend=snakemake.params.stream_backend,
         cache_primary=snakemake.params.cache_primary,
-        target_date=snakemake.params.target_date,
+        target_date=target_date,
     )

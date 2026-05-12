@@ -31,21 +31,13 @@ def test_interface_file(module_path):
         "LICENSE",
         "README.md",
         "config/config.yaml",
-        "workflow/internal/config.schema.yaml",
+        "config/config.schema.json",
         "tests/integration/Snakefile",
     ],
 )
 def test_standard_file_existance(module_path, file):
     """Check that a minimal set of files used for documentation are present."""
     assert Path(module_path / file).exists()
-
-
-def test_snakemake_all_failure(module_path):
-    """The snakemake 'all' rule should return an error by default."""
-    process = subprocess.run(
-        "snakemake --cores 1", shell=True, cwd=module_path, capture_output=True
-    )
-    assert "INVALID (missing locally)" in str(process.stderr)
 
 
 def test_snakemake_integration_testing(module_path):

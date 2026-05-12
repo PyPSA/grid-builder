@@ -17,8 +17,9 @@ def mock_snakemake(
     submodule_dir="workflow/submodules/pypsa-eur",
     **wildcards,
 ):
-    """
-    This function is expected to be executed from the 'scripts'-directory of '
+    """Mock a Snakemake object for testing scripts outside of Snakemake.
+
+    This function is expected to be executed from the 'scripts'-directory of
     the snakemake project. It returns a snakemake.script.Snakemake object,
     based on the Snakefile.
 

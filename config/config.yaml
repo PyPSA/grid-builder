@@ -1,15 +1,16 @@
+%YAML 1.1
+---
+# yaml-language-server: $schema=./config.schema.json
 countries:
-  - benin
-  - togo
-
+- BE
 retrieve:
   source: geofabrik
   primary_name: power
   features:
-    - substation
-    - line
+  - substation
+  - line
   force_redownload: false
   mp: true
   stream_backend: true
   cache_primary: false
-  target_date: null
+  target_date:

@@ -1,6 +1,6 @@
 grid_builder:
   countries:
-    - belgium
+    - benin
 
   retrieve:
     source: geofabrik
@@ -12,4 +12,4 @@ grid_builder:
     mp: true
     stream_backend: true
     cache_primary: false
-    target_date: null
+    target_date:

@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "countries": {
+      "default": [
+        "BE"
+      ],
+      "description": "List of countries to retrieve OSM data for",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "retrieve": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "geofabrik",
+          "description": "Retrieval backend for OSM data",
+          "enum": [
+            "geofabrik",
+            "overpass"
+          ],
+          "type": "string"
+        },
+        "primary_name": {
+          "default": "power",
+          "description": "Primary OSM feature to retrieve (e.g., 'power')",
+          "type": "string"
+        },
+        "features": {
+          "default": [
+            "substation",
+            "line"
+          ],
+          "description": "OSM features to retrieve for each country",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "force_redownload": {
+          "default": false,
+          "description": "Force refresh of cached data in earth-osm",
+          "type": "boolean"
+        },
+        "mp": {
+          "default": true,
+          "description": "Enable multiprocessing in earth-osm",
+          "type": "boolean"
+        },
+        "stream_backend": {
+          "default": true,
+          "description": "Enable streaming backend in earth-osm",
+          "type": "boolean"
+        },
+        "cache_primary": {
+          "default": false,
+          "description": "Enable caching of primary feature data in earth-osm",
+          "type": "boolean"
+        },
+        "target_date": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional historical date for data retrieval in ISO 8601 datetime format"
+        }
+      },
+      "description": "Configuration for OSM data retrieval using earth-osm"
+    }
+  },
+  "title": "ConfigSchema",
+  "type": "object"
+}
