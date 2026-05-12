@@ -15,11 +15,9 @@ pathvars:
     osm_out="<resources>/automatic/osm/out",
 
 
-# Load the example configuration. This will be overridden by users.
+# Default configuration file generated from pydantic schema.
 configfile: workflow.source_path("../config/config.yaml")
 
-
-# Validate the configuration using the Pydantic schema.
 config = validate_config(config)
 
 # Load internal settings separately so users cannot modify them.
@@ -27,25 +25,10 @@ with open(workflow.source_path("internal/settings.yaml"), "r") as f:
     internal = yaml.safe_load(f)
 
 
-# Add all your includes here.
 include: "rules/retrieve.smk"
-
-
-# Add additional files to be delivered alongside the workflow here.
-# This is needed e.g. for python code files that are never
-# explicitly used as a script or input in a snakemake rule.
-# e.g.: workflow.source_path("scripts/_utils.py")
 
 
 rule all:
     default_target: True
-    output:
-        "INVALID",
-    log:
-        stderr="<logs>/all.stderr",
-    conda:
-        "envs/shell.yaml"
-    message:
-        "ERROR: Invalid `rule all:` call"
-    shell:
-        'echo "This workflow must be called as a snakemake module." > {log.stderr}'
+    input:
+        rules.retrieve_osm_all.input,
