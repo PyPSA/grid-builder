@@ -12,6 +12,22 @@
       "minItems": 1,
       "type": "array"
     },
+    "crs": {
+      "additionalProperties": false,
+      "description": "Coordinate reference systems, matching PyPSA-Earth's config.default.yaml\n``crs:`` section exactly (key names and defaults).",
+      "properties": {
+        "geo_crs": {
+          "default": "EPSG:4326",
+          "description": "General geographic projection, not used for metric measures. \"EPSG:4326\" is the standard used by OSM and google maps",
+          "type": "string"
+        },
+        "distance_crs": {
+          "default": "EPSG:3857",
+          "description": "Projection for distance measurements only. Possible recommended values are \"EPSG:3857\" (used by OSM and Google Maps)",
+          "type": "string"
+        }
+      }
+    },
     "retrieve": {
       "additionalProperties": false,
       "properties": {
@@ -76,8 +92,199 @@
         }
       },
       "description": "Configuration for OSM data retrieval using earth-osm"
+    },
+    "clean": {
+      "additionalProperties": false,
+      "properties": {
+        "min_voltage_ac": {
+          "default": 51000,
+          "description": "Minimum AC voltage (V) to retain",
+          "type": "number"
+        },
+        "min_voltage_dc": {
+          "default": 150000,
+          "description": "Minimum DC voltage (V) to retain",
+          "type": "number"
+        },
+        "tag_substation": {
+          "default": "transmission",
+          "description": "Only keep substations whose OSM substation tag matches this value (matches PyPSA-Earth's clean_osm_data.py config key of the same name); empty string disables the filter",
+          "type": "string"
+        },
+        "country_assignment": {
+          "default": "osm_tag",
+          "description": "Method to assign country to each asset; 'gadm_shape' requires country/offshore shapefiles as additional input and is more robust near borders",
+          "enum": [
+            "osm_tag",
+            "gadm_shape"
+          ],
+          "type": "string"
+        },
+        "detect_converters": {
+          "default": true,
+          "description": "Detect DC converters/switching substations from OSM tags",
+          "type": "boolean"
+        },
+        "dedupe_cross_border": {
+          "default": true,
+          "description": "Remove duplicate lines/relations spanning country borders (the clean_osm rule processes every configured country at once, so this comparison happens automatically as part of that single rule)",
+          "type": "boolean"
+        },
+        "hvdc_routes": {
+          "default": false,
+          "description": "Parse Overpass route relations for multi-way HVDC links; only meaningful when retrieve.source is 'overpass'",
+          "type": "boolean"
+        },
+        "add_line_endings": {
+          "default": true,
+          "description": "Create synthetic substation stubs at dangling line endpoints",
+          "type": "boolean"
+        },
+        "under_construction": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "default": "remove",
+              "description": "Whether to keep or drop under-construction assets",
+              "enum": [
+                "keep",
+                "remove"
+              ],
+              "type": "string"
+            },
+            "remove_after": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only remove under-construction assets started after this date; has no effect when mode is 'keep'"
+            }
+          }
+        },
+        "generators": {
+          "additionalProperties": false,
+          "description": "Optional generator-extraction module (ported from PyPSA-Earth, absent in PyPSA-Eur).",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Extract power generators from OSM data",
+              "type": "boolean"
+            },
+            "name_method": {
+              "default": "osm",
+              "description": "Method for naming generators lacking an OSM name tag; 'closest_city' uses the reverse_geocode package (already part of PyPSA-Earth's own environment)",
+              "enum": [
+                "osm",
+                "closest_city"
+              ],
+              "type": "string"
+            }
+          }
+        },
+        "custom_data": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "description": "Per-asset override to splice in non-OSM data, generalizing PyPSA-Earth's\nuse_custom_{lines,cables,substations} mechanism to every asset type.",
+            "properties": {
+              "mode": {
+                "default": "osm_only",
+                "description": "How to combine OSM data with user-supplied custom data for this asset",
+                "enum": [
+                  "osm_only",
+                  "custom_only",
+                  "add_custom",
+                  "none"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Path to custom data file, required unless mode is 'osm_only'"
+              },
+              "stage": {
+                "default": "pre_clean",
+                "description": "'pre_clean' splices custom data into OSM-shaped rows before cleaning/clustering runs (PyPSA-Earth's original use case: hand-edited fixups). 'post_build' accepts an already-final component table and skips clean/build_network entirely for this asset (e.g. a pre-built dataset such as PyPSA-Eur's tyndp/entsoegridkit sources).",
+                "enum": [
+                  "pre_clean",
+                  "post_build"
+                ],
+                "type": "string"
+              }
+            }
+          },
+          "description": "Per-asset custom/non-OSM data overrides, keyed by asset name",
+          "propertyNames": {
+            "enum": [
+              "buses",
+              "lines",
+              "dc_links",
+              "converters",
+              "transformers"
+            ]
+          },
+          "type": "object"
+        }
+      },
+      "description": "Configuration for cleaning raw OSM data into canonical component tables"
+    },
+    "build_network": {
+      "additionalProperties": false,
+      "properties": {
+        "group_tolerance_buses": {
+          "description": "Distance (m) within which nearby buses are merged into one station. No default: PyPSA-Earth (coarse OSM coverage) and PyPSA-Eur (dense coverage) disagree by an order of magnitude (5000 vs 500), so every consumer must set this explicitly rather than inherit a value tuned for the other repo.",
+          "type": "number"
+        },
+        "overpassing_lines_tolerance": {
+          "default": 1.0,
+          "description": "Snap tolerance (m) for splitting overpassing lines",
+          "type": "number"
+        },
+        "split_overpassing_lines": {
+          "default": true,
+          "description": "Split lines that geometrically cross other lines without a shared node",
+          "type": "boolean"
+        },
+        "force_ac": {
+          "default": false,
+          "description": "Force all lines to be treated as AC",
+          "type": "boolean"
+        },
+        "voltage_group_split": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If set, split a bus cluster into separate stations when the relative spread of voltages within it exceeds this fraction (optional refinement on top of distance-based clustering)"
+        }
+      },
+      "required": [
+        "group_tolerance_buses"
+      ],
+      "description": "Configuration for building final network topology from cleaned OSM data"
     }
   },
+  "required": [
+    "build_network"
+  ],
   "title": "ConfigSchema",
   "type": "object"
 }
