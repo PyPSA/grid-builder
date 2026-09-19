@@ -3,6 +3,9 @@
 # yaml-language-server: $schema=./config.schema.json
 countries:
 - BE
+crs:
+  geo_crs: "EPSG:4326"
+  distance_crs: "EPSG:3857"
 retrieve:
   source: geofabrik
   primary_name: power
@@ -14,3 +17,28 @@ retrieve:
   stream_backend: true
   cache_primary: false
   target_date:
+clean:
+  min_voltage_ac: 51000
+  min_voltage_dc: 150000
+  tag_substation: transmission
+  country_assignment: osm_tag
+  detect_converters: true
+  dedupe_cross_border: true
+  hvdc_routes: false
+  add_line_endings: true
+  under_construction:
+    mode: remove
+    remove_after:
+  generators:
+    enabled: false
+    name_method: osm
+  custom_data: {}
+build_network:
+  # No safe shared default: PyPSA-Earth (coarse OSM coverage) needs ~5000,
+  # PyPSA-Eur (dense coverage) needs ~500. Set explicitly per deployment; 500
+  # here matches the shipped default country (BE / Belgium, dense coverage).
+  group_tolerance_buses: 500
+  overpassing_lines_tolerance: 1.0
+  split_overpassing_lines: true
+  force_ac: false
+  voltage_group_split:
