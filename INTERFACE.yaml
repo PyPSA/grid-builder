@@ -14,3 +14,26 @@ pathvars:
     user_message:
       default: "<resources>/user/user_message.md"
       description: user-provided text input passed into the module.
+  osm_clean:
+    osm_clean_buses:
+      default: "<resources>/osm/clean/all_buses.geojson"
+      description: cleaned, country-aggregated substation/bus points (station_id is present but unpopulated until build_network runs).
+    osm_clean_lines:
+      default: "<resources>/osm/clean/all_lines.geojson"
+      description: cleaned, country-aggregated AC line/cable geometries, cross-border duplicates removed.
+    osm_clean_generators:
+      default: "<resources>/osm/clean/{country}_generators.geojson"
+      description: "per-country generator table; only produced when clean.generators.enabled is true."
+  osm_build:
+    osm_build_buses:
+      default: "<resources>/osm/build/buses.csv"
+      description: final bus/station table with station_id clustering applied and bus0/bus1-ready geometry.
+    osm_build_lines:
+      default: "<resources>/osm/build/lines.csv"
+      description: final AC line table with bus0/bus1 resolved.
+    osm_build_converters:
+      default: "<resources>/osm/build/converters.csv"
+      description: AC/DC converter table.
+    osm_build_transformers:
+      default: "<resources>/osm/build/transformers.csv"
+      description: intra-station transformer table.
