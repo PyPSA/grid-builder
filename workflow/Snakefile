@@ -9,10 +9,14 @@ from scripts._schema import validate_config
 min_version("9.19")
 
 
-# Define pathvars to expose OSM retrieval outputs for downstream use.
+# Define pathvars to expose this module's stage outputs for downstream use.
 pathvars:
     # OSM retrieval outputs by country and feature
     osm_out="<resources>/osm/out",
+    # Cleaned, country-aggregated component tables (buses/lines/generators)
+    osm_clean="<resources>/osm/clean",
+    # Final network topology (single build_network rule downstream depends on)
+    osm_build="<resources>/osm/build",
 
 
 # Default configuration file generated from pydantic schema.
@@ -27,9 +31,10 @@ with open(workflow.source_path("internal/settings.yaml"), "r") as f:
 
 
 include: "rules/retrieve.smk"
+include: "rules/build_grid.smk"
 
 
 rule all:
     default_target: True
     input:
-        rules.retrieve_osm_all.input,
+        rules.build_network.output,
