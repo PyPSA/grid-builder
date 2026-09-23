@@ -1,6 +1,0 @@
-name: shell
-channels:
-  - conda-forge
-  - nodefaults
-dependencies:
-  - curl=8.9.1

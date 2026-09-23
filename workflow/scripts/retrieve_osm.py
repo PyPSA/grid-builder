@@ -6,6 +6,7 @@
 
 import logging
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def configure_logging(log_path: str) -> None:
+    """Write retrieval messages, dependency logs, and failures to the rule log."""
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(logging.INFO)
+
+
 def retrieve_osm_data(
     country: str,
     features: list[str],
@@ -29,7 +41,7 @@ def retrieve_osm_data(
     source: str,
     base_dir: str,
     force_redownload: bool = False,
-    mp: bool = True,
+    mp: bool = False,
     stream_backend: bool = True,
     cache_primary: bool = False,
     target_date: datetime | None = None,
@@ -51,7 +63,7 @@ def retrieve_osm_data(
     force_redownload : bool, optional
         Force re-download even if cached. Default is False.
     mp : bool, optional
-        Enable multiprocessing. Default is True.
+        Enable multiprocessing. Default is False.
     stream_backend : bool, optional
         Enable streaming backend. Default is True.
     cache_primary : bool, optional
@@ -106,6 +118,9 @@ if __name__ == "__main__":
 
         snakemake = mock_snakemake("retrieve_osm", country="benin")
 
+    configure_logging(snakemake.log[0])
+    logger.info("Python executable: %s", sys.executable)
+
     # Extract parameters
     country = snakemake.wildcards.country
     features = list(snakemake.params.features)
@@ -114,15 +129,19 @@ if __name__ == "__main__":
     target_date = parse_target_date(snakemake.params.target_date)
 
     # Call main function
-    retrieve_osm_data(
-        country=country,
-        features=features,
-        primary_name=snakemake.params.primary_name,
-        source=snakemake.params.source,
-        base_dir=base_dir,
-        force_redownload=snakemake.params.force_redownload,
-        mp=snakemake.params.mp,
-        stream_backend=snakemake.params.stream_backend,
-        cache_primary=snakemake.params.cache_primary,
-        target_date=target_date,
-    )
+    try:
+        retrieve_osm_data(
+            country=country,
+            features=features,
+            primary_name=snakemake.params.primary_name,
+            source=snakemake.params.source,
+            base_dir=base_dir,
+            force_redownload=snakemake.params.force_redownload,
+            mp=snakemake.params.mp,
+            stream_backend=snakemake.params.stream_backend,
+            cache_primary=snakemake.params.cache_primary,
+            target_date=target_date,
+        )
+    except Exception:
+        logger.exception("OSM retrieval failed for %s", country)
+        raise

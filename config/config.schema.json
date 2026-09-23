@@ -47,8 +47,9 @@
           "type": "boolean"
         },
         "mp": {
-          "default": true,
-          "description": "Enable multiprocessing in earth-osm",
+          "const": false,
+          "default": false,
+          "description": "Must be false: earth-osm multiprocessing does not respect Snakemake's CPU allocation",
           "type": "boolean"
         },
         "stream_backend": {

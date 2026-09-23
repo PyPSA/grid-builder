@@ -10,7 +10,7 @@ retrieve:
   - substation
   - line
   force_redownload: false
-  mp: true
+  mp: false
   stream_backend: true
   cache_primary: false
   target_date:

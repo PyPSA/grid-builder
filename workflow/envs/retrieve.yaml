@@ -1,0 +1,8 @@
+name: retrieve
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python >=3.12,<3.13
+  - earth-osm =3.0.2
+  - pyproj >=3.7,<4

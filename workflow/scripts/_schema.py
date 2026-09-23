@@ -57,7 +57,10 @@ class RetrieveConfig(ConfigModel):
     force_redownload: bool = Field(
         False, description="Force refresh of cached data in earth-osm"
     )
-    mp: bool = Field(True, description="Enable multiprocessing in earth-osm")
+    mp: Literal[False] = Field(
+        False,
+        description="Must be false: earth-osm multiprocessing does not respect Snakemake's CPU allocation",
+    )
     stream_backend: bool = Field(
         True, description="Enable streaming backend in earth-osm"
     )

@@ -18,7 +18,8 @@ rule retrieve_osm:
     log:
         "<logs>/retrieve_osm/{country}.log",
     conda:
-        "../envs/shell.yaml"
+        "../envs/retrieve.yaml"
+    threads: 1
     params:
         primary_name=config["retrieve"]["primary_name"],
         features=config["retrieve"]["features"],
