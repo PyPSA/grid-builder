@@ -7,10 +7,11 @@ defaults, schema, and validation.
 import json
 import math
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Literal
 
-from earth_osm.regions import get_all_valid_codes
+from earth_osm.regions import get_all_valid_codes, get_region_tuple
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -50,7 +51,7 @@ class RetrieveConfig(ConfigModel):
         "power", description="Primary OSM feature to retrieve (e.g., 'power')"
     )
     features: list[str] = Field(
-        default=["substation", "line"],
+        default=["substation", "line", "cable"],
         description="OSM features to retrieve for each country",
         min_length=1,
     )
@@ -71,6 +72,36 @@ class RetrieveConfig(ConfigModel):
         None,
         description="Optional historical date for data retrieval in ISO 8601 datetime format",
     )
+
+
+class NetworkConfig(ConfigModel):
+    """Global assumptions for cleaning and connecting OSM grid features."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    minimum_voltage_kv: float = Field(
+        220.0, description="Minimum nominal AC voltage retained from OSM, in kV", gt=0
+    )
+    station_merge_distance_m: float = Field(
+        500.0,
+        description="Distance used to merge nearby substations and line endpoints, in metres",
+        gt=0,
+    )
+    under_construction: Literal["keep", "remove"] = Field(
+        "remove", description="Whether assets tagged as under construction are retained"
+    )
+    remove_after: date | None = Field(
+        date(2025, 12, 31),
+        description="Exclude assets with a later planned start date; null disables this filter",
+    )
+
+
+class RegionalNetworkConfig(ConfigModel):
+    """Optional country-specific overrides loaded from config/regions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    minimum_voltage_kv: float | None = Field(None, gt=0)
 
 
 class ConfigSchema(ConfigModel):
@@ -97,9 +128,56 @@ class ConfigSchema(ConfigModel):
         default_factory=RetrieveConfig,
         description="Configuration for OSM data retrieval using earth-osm",
     )
+    network: NetworkConfig = Field(
+        default_factory=NetworkConfig,
+        description="Settings for clean_osm_data and build_osm_network",
+    )
+    regions: dict[str, RegionalNetworkConfig] = Field(
+        default_factory=dict,
+        description="Country-specific network overrides loaded from config/regions",
+    )
 
 
-def validate_config(config: dict) -> ConfigSchema:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge nested dictionaries without mutating either input."""
+    merged = base.copy()
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_region_configs(
+    config: dict[str, Any], regions_dir: str | Path
+) -> dict[str, Any]:
+    """Load country settings selected by ``countries`` before validation.
+
+    Files use the name ``config.<ISO-3166-1-alpha-2>.yaml`` and contain a
+    ``network`` mapping. Explicit ``regions`` values in the calling config take
+    precedence over the checked-in regional defaults.
+    """
+    raw = config.copy()
+    supplied_regions = raw.pop("regions", {})
+    countries = raw.get("countries", ConfigSchema.model_fields["countries"].default)
+    yaml_reader = YAML(typ="safe")
+    loaded_regions: dict[str, Any] = {}
+
+    for country in countries:
+        region = get_region_tuple(country).short
+        path = Path(regions_dir) / f"config.{region}.yaml"
+        if path.exists():
+            loaded = yaml_reader.load(path) or {}
+            if not isinstance(loaded, dict):
+                raise ValueError(f"Regional config {path} must be a mapping.")
+            loaded_regions[region] = loaded.get("network", loaded)
+
+    raw["regions"] = _deep_merge(loaded_regions, supplied_regions)
+    return raw
+
+
+def validate_config(config: dict[str, Any]) -> ConfigSchema:
     """Validate config dict against schema."""
     return ConfigSchema(**config)
 
@@ -209,6 +287,7 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
 
 __all__ = [
     "ConfigSchema",
+    "load_region_configs",
     "validate_config",
     "generate_config_defaults",
     "generate_config_schema",

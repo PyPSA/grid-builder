@@ -9,8 +9,15 @@ retrieve:
   features:
   - substation
   - line
+  - cable
   force_redownload: false
   mp: false
   stream_backend: true
   cache_primary: false
   target_date:
+network:
+  minimum_voltage_kv: 220.0
+  station_merge_distance_m: 500.0
+  under_construction: remove
+  remove_after: 2025-12-31
+regions: {}

@@ -1,0 +1,17 @@
+# Fast development scope for the OSM cleaning and network-building pipeline.
+countries:
+  - BE
+  - NL
+
+retrieve:
+  source: geofabrik
+  features:
+    - substation
+    - line
+    - cable
+
+network:
+  minimum_voltage_kv: 220.0
+  station_merge_distance_m: 500.0
+  under_construction: remove
+  remove_after: 2025-12-31

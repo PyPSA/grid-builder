@@ -8,6 +8,7 @@ grid_builder:
     features:
       - substation
       - line
+      - cable
     force_redownload: false
     mp: false
     stream_backend: true

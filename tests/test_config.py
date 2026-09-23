@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from workflow.scripts._schema import (
     generate_config_defaults,
     generate_config_schema,
+    load_region_configs,
     validate_config,
 )
 
@@ -40,3 +41,21 @@ def test_generated_config_matches_repository(tmp_path):
     assert defaults == yaml.safe_load((config_dir / "config.yaml").read_text())
     assert schema == json.loads((config_dir / "config.schema.json").read_text())
     assert validate_config(defaults).retrieve.mp is False
+
+
+def test_selected_regions_load_checked_in_overrides(tmp_path):
+    """Load only selected regional defaults and preserve caller overrides."""
+    regions = tmp_path / "regions"
+    regions.mkdir()
+    (regions / "config.BE.yaml").write_text("network:\n  minimum_voltage_kv: 230\n")
+    (regions / "config.NL.yaml").write_text(
+        "network:\n  station_merge_distance_m: 600\n"
+    )
+    config = load_region_configs(
+        {"countries": ["BE", "NL"], "regions": {"BE": {"minimum_voltage_kv": 225}}},
+        regions,
+    )
+    assert config["regions"] == {
+        "BE": {"minimum_voltage_kv": 225},
+        "NL": {"station_merge_distance_m": 600},
+    }

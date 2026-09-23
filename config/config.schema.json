@@ -32,7 +32,8 @@
         "features": {
           "default": [
             "substation",
-            "line"
+            "line",
+            "cable"
           ],
           "description": "OSM features to retrieve for each country",
           "items": {
@@ -77,6 +78,68 @@
         }
       },
       "description": "Configuration for OSM data retrieval using earth-osm"
+    },
+    "network": {
+      "additionalProperties": false,
+      "description": "Global assumptions for cleaning and connecting OSM grid features.",
+      "properties": {
+        "minimum_voltage_kv": {
+          "default": 220.0,
+          "description": "Minimum nominal AC voltage retained from OSM, in kV",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "station_merge_distance_m": {
+          "default": 500.0,
+          "description": "Distance used to merge nearby substations and line endpoints, in metres",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "under_construction": {
+          "default": "remove",
+          "description": "Whether assets tagged as under construction are retained",
+          "enum": [
+            "keep",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "remove_after": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "2025-12-31",
+          "description": "Exclude assets with a later planned start date; null disables this filter"
+        }
+      }
+    },
+    "regions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "description": "Optional country-specific overrides loaded from config/regions.",
+        "properties": {
+          "minimum_voltage_kv": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "description": "Country-specific network overrides loaded from config/regions",
+      "type": "object"
     }
   },
   "title": "ConfigSchema",

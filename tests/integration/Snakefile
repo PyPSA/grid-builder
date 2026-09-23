@@ -18,4 +18,4 @@ use rule * from grid_builder as grid_builder_*
 rule all:
     default_target: True
     input:
-        rules.grid_builder_retrieve_osm_all.input,
+        rules.grid_builder_build_osm_network.output,

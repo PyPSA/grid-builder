@@ -6,6 +6,7 @@ Contents may be updated in future template updates.
 
 import csv
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,7 @@ def test_interface_file(module_path):
         "README.md",
         "config/config.yaml",
         "config/config.schema.json",
+        "config/examples/config.BE-NL.yaml",
         "tests/integration/Snakefile",
     ],
 )
@@ -72,6 +74,7 @@ def test_snakemake_integration_testing(module_path, tmp_path):
                 stderr=subprocess.STDOUT,
                 timeout=600,
                 check=False,
+                env={**os.environ, "XDG_CACHE_HOME": str(tmp_path / "cache")},
             )
     finally:
         if (tmp_path / "logs").exists():
@@ -89,6 +92,17 @@ def test_snakemake_integration_testing(module_path, tmp_path):
         assert geojson["type"] == "FeatureCollection"
         assert len(geojson["features"]) == len(rows)
         assert all(item["geometry"] for item in geojson["features"])
+
+    build_dir = tmp_path / "resources/grid-builder/osm/build"
+    for component in ("buses", "lines", "transformers"):
+        with (build_dir / f"{component}.csv").open(encoding="utf-8") as file:
+            rows = list(csv.DictReader(file))
+        assert rows or component == "transformers"
+
+    with (build_dir / "lines.csv").open(encoding="utf-8") as file:
+        built_lines = list(csv.DictReader(file))
+    assert all(row["bus0"] != row["bus1"] for row in built_lines)
+    assert all(float(row["voltage_kv"]) >= 220 for row in built_lines)
 
     country_log = (tmp_path / "logs/grid-builder/retrieve_osm/benin.log").read_text(
         encoding="utf-8"

@@ -8,9 +8,9 @@ A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 ## About
 
-`grid-builder` is a small, modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure using earth-osm. It can be imported into another `snakemake` workflow.
+`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure with earth-osm and builds a generic high-voltage network. It can be imported into another `snakemake` workflow.
 
-The current implementation retrieves substations and lines by default and exports raw CSV and GeoJSON files for each configured country. It does not yet filter for high voltage, infer electrical parameters, build network topology, or validate a power grid model. Those are planned extensions toward use in energy system modelling.
+The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
 
 This module follows the Modelblocks conventions (https://www.modelblocks.org). For more information, consult the [integration example](./tests/integration/Snakefile) and the `snakemake` [modularisation documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/modularization.html).
 
@@ -18,21 +18,30 @@ This module follows the Modelblocks conventions (https://www.modelblocks.org). F
 
 Currently implemented:
 
-1. Retrieve OSM power infrastructure by country and feature.
-2. Export CSV and GeoJSON files for downstream processing.
+1. Retrieve OSM substations, lines, and cables by country with earth-osm.
+2. Clean native earth-osm CSV exports, filtering voltage, frequency, construction status, and future assets.
+3. Merge nearby stations and line endpoints into generic buses, AC lines, and transformers.
 
 ## Configuration
 
-Please consult the configuration [README](./config/README.md) and the [configuration example](./config/config.yaml) for a general overview on the configuration options of this module.
+Set `countries` in the main configuration to select the scope. For every selected ISO code, the workflow loads an optional `config/regions/config.<ISO>.yaml` file; values placed directly in `regions` in the main configuration take precedence. The [BE+NL example](./config/examples/config.BE-NL.yaml) is a runnable development scope.
+
+Please consult the configuration [README](./config/README.md) and the [configuration example](./config/config.yaml) for the available controls.
 
 ## Input / output structure
 
 Please consult the [interface file](./INTERFACE.yaml) for more information.
 
-Outputs use `<resources>/osm/out/{country}_{feature}.{csv,geojson}`;
-country logs use `<logs>/retrieve_osm/{country}.log`. The integration example
-sets these roots to `resources/grid-builder` and `logs/grid-builder`.
+Raw retrieval outputs use `<resources>/osm/out/{country}_{feature}.{csv,geojson}`.
+Clean features use `<resources>/osm/clean/*.geojson`; generic network components
+use `<resources>/osm/build/{buses,lines,transformers}.csv` and matching GeoJSON
+files. Country logs use `<logs>/retrieve_osm/{country}.log`. The integration
+example sets these roots to `resources/grid-builder` and `logs/grid-builder`.
 Downloaded PBF files are cached in `data/earth-osm` in this checkout.
+
+The initial topology path uses earth-osm's native node and way records. Support
+for relation-based and DC assets is a subsequent extension of the same retrieval
+interface.
 
 ## Development
 
@@ -66,11 +75,11 @@ dependencies. Snakemake installs the retrieval script's dependencies from
 must also provide the host dependencies from `pixi.toml`; importing the module
 does not activate its Pixi environment automatically.
 
-The integration test uses a fresh temporary output directory, runs the retrieval
-Conda environment, and checks CSV/GeoJSON contents and country logging. It needs
-internet access on the first run to install dependencies and download Benin's
-OSM extract; subsequent runs can reuse those caches. Test logs are retained in
-`tests/integration/logs`.
+The integration test uses a fresh temporary output directory, runs the retrieval,
+cleaning, and generic network Conda environments, and checks the resulting
+components and country logging. It needs internet access on the first run to
+install dependencies and download Benin's OSM extract; subsequent runs can reuse
+those caches. Test logs are retained in `tests/integration/logs`.
 
 Each country job runs with one worker. Keep `retrieve.mp: false`: earth-osm 3.0.2
 does not expose a worker limit, so enabling its multiprocessing would bypass

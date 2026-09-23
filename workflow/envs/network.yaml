@@ -1,0 +1,12 @@
+name: network
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python >=3.12,<3.13
+  - geopandas >=1.0,<2
+  - numpy >=2,<3
+  - pandas >=2,<3
+  - pyogrio >=0.10,<1
+  - pyproj >=3.7,<4
+  - shapely >=2,<3

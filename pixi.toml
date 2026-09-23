@@ -25,6 +25,11 @@ snakefmt = ">=0.10.2"
 snakemake-minimal = ">=9.19.0"
 pytz = ">=2026.1.post1"
 earth-osm = ">=3.0.2"
+geopandas = ">=1.0,<2"
+numpy = ">=2,<3"
+pandas = ">=2,<3"
+pyogrio = ">=0.10,<1"
+shapely = ">=2,<3"
 
 [tasks]
 test = {cmd = "pytest tests"}
