@@ -6,11 +6,10 @@ pathvars:
       description: location of snakemake log files.
     resources:
       default: "<resources>"
-      description: location of module resource files.
+      description: >-
+        Retrieved OSM files are written to osm/out/{country}_{feature}.csv
+        and osm/out/{country}_{feature}.geojson under this directory.
     results:
       default: "<results>"
       description: location of module result files.
-  user_resources:
-    user_message:
-      default: "<resources>/user/user_message.md"
-      description: user-provided text input passed into the module.
+  user_resources: {}

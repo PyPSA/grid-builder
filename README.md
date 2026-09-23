@@ -1,6 +1,6 @@
 # grid-builder
 
-A modular Snakemake workflow for constructing and validating power grid models using OpenStreetMap data.
+A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 <p align="center">
   <img src="./figures/map_europe.png" width="50%">
@@ -8,36 +8,33 @@ A modular Snakemake workflow for constructing and validating power grid models u
 
 ## About
 
-`grid-builder` is a modular `snakemake` workflow for constructing power grid models from OpenStreetMap data for use in energy system modelling. It can be imported directly into any `snakemake` workflow.
+`grid-builder` is a small, modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure using earth-osm. It can be imported into another `snakemake` workflow.
 
-Starting from raw OpenStreetMap data, the workflow extracts high-voltage grid components, including substations, transmission lines, cables, transformers, and converters. Missing electrical parameters such as voltage levels and line counts are then inferred heuristically using region-specific assumptions on asset types and standards. The output is a model-ready power grid network compatible with [PyPSA-Eur](https://github.com/PyPSA/pypsa-eur), [PyPSA-Earth](https://github.com/PyPSA/pypsa-earth), and other energy system modelling frameworks.
+The current implementation retrieves substations and lines by default and exports raw CSV and GeoJSON files for each configured country. It does not yet filter for high voltage, infer electrical parameters, build network topology, or validate a power grid model. Those are planned extensions toward use in energy system modelling.
 
 This module follows the Modelblocks conventions (https://www.modelblocks.org). For more information, consult the [integration example](./tests/integration/Snakefile) and the `snakemake` [modularisation documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/modularization.html).
 
 ## Overview
 
-Data processing steps:
+Currently implemented:
 
-1. Download OSM power infrastructure data
-2. Clean and infer electrical network attributes
-3. Build connected network topology
-4. Validate network model
+1. Retrieve OSM power infrastructure by country and feature.
+2. Export CSV and GeoJSON files for downstream processing.
 
 ## Configuration
-
-<!-- Please describe how to configure this module below -->
 
 Please consult the configuration [README](./config/README.md) and the [configuration example](./config/config.yaml) for a general overview on the configuration options of this module.
 
 ## Input / output structure
 
-<!-- Please describe input / output file placement below -->
-
 Please consult the [interface file](./INTERFACE.yaml) for more information.
 
-## Development
+Outputs use `<resources>/osm/out/{country}_{feature}.{csv,geojson}`;
+country logs use `<logs>/retrieve_osm/{country}.log`. The integration example
+sets these roots to `resources/grid-builder` and `logs/grid-builder`.
+Downloaded PBF files are cached in `data/earth-osm` in this checkout.
 
-<!-- Please do not modify this templated section -->
+## Development
 
 We use [`pixi`](https://pixi.sh/) as our package manager for development.
 Once installed, run the following to clone this repository and install all dependencies.
@@ -45,13 +42,14 @@ Once installed, run the following to clone this repository and install all depen
 ```shell
 git clone git@github.com:PyPSA/grid-builder.git
 cd grid-builder
-pixi install --all
+pixi install --locked
 ```
 
 For testing, simply run:
 
 ```shell
-pixi run test-integration
+pixi run --locked lint
+pixi run --locked test
 ```
 
 To test a minimal example of a workflow using this module:
@@ -59,12 +57,32 @@ To test a minimal example of a workflow using this module:
 ```shell
 pixi shell                          # activate this project's environment
 cd tests/integration/               # navigate to the integration example
-snakemake --cores 2                 # run the workflow!
+snakemake --use-conda --cores 2      # run the workflow!
 ```
+
+The Pixi environment supplies Snakemake and the configuration-validation
+dependencies. Snakemake installs the retrieval script's dependencies from
+`workflow/envs/retrieve.yaml` when `--use-conda` is enabled. A consuming workflow
+must also provide the host dependencies from `pixi.toml`; importing the module
+does not activate its Pixi environment automatically.
+
+The integration test uses a fresh temporary output directory, runs the retrieval
+Conda environment, and checks CSV/GeoJSON contents and country logging. It needs
+internet access on the first run to install dependencies and download Benin's
+OSM extract; subsequent runs can reuse those caches. Test logs are retained in
+`tests/integration/logs`.
+
+Each country job runs with one worker. Keep `retrieve.mp: false`: earth-osm 3.0.2
+does not expose a worker limit, so enabling its multiprocessing would bypass
+Snakemake's CPU allocation. Snakemake can still run multiple country jobs in
+parallel using `--cores`.
+
+If this checkout is moved and commands fail with a `bad interpreter` error,
+rebuild the installed environment with `pixi reinstall --locked`.
 
 ## License
 
-`grid-builder` is released as free software under the [MIT](LICENSES/MIT.txt) license. Different licenses and terms of use may apply to input data, e.g. OpenStreetMap data is subject to the [Open Database License](https://opendatacommons.org/licenses/odbl).
+`grid-builder` is released as free software under the [MIT](LICENSE) license. Different licenses and terms of use may apply to input data, e.g. OpenStreetMap data is subject to the [Open Database License](https://opendatacommons.org/licenses/odbl).
 
 ## References & related work
 
