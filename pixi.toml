@@ -1,7 +1,7 @@
 [workspace]
 name = "grid_builder"
 authors = ["See AUTHORS file"]
-description = "A modular Snakemake workflow for constructing and validating power grid models using OpenStreetMap data."
+description = "A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure."
 license = "MIT"
 readme = "README.md"
 channels = ["conda-forge", "bioconda"]
@@ -17,7 +17,9 @@ pydantic = ">=2.0"
 "ruamel.yaml" = ">=0.18"
 mypy = ">=1.15.0"
 pytest = ">=8.3.5"
-python = ">=3.12"
+python = ">=3.12,<3.13"
+pyproj = ">=3.7,<4"
+pyyaml = ">=6,<7"
 ruff = ">=0.9.9"
 snakefmt = ">=0.10.2"
 snakemake-minimal = ">=9.19.0"
@@ -25,5 +27,9 @@ pytz = ">=2026.1.post1"
 earth-osm = ">=3.0.2"
 
 [tasks]
+test = {cmd = "pytest tests"}
 test-integration = {cmd = "pytest tests/integration_test.py"}
 generate-config = {cmd = "python workflow/scripts/_schema.py"}
+check-python = {cmd = "ruff check workflow/scripts tests && ruff format --check workflow/scripts tests && mypy workflow/scripts"}
+check-workflow = {cmd = "snakefmt --check workflow tests/integration/Snakefile && snakemake --lint --snakefile workflow/Snakefile && snakemake --lint --snakefile tests/integration/Snakefile"}
+lint = {depends-on = ["check-python", "check-workflow"]}
