@@ -15,7 +15,7 @@ geofabrik/pyosmium retrieval path (retrieve_osm_pbf.py), which also sees
 plain-node substations.
 
 Output is raw Overpass JSON (``{"elements": [...]}``) — the same shape
-retrieve_osm_pbf.py produces from a local PBF file, so clean_osm_data.py's
+retrieve_osm_pbf.py produces from a local PBF file, so clean.py's
 importers don't need to know which source produced their input.
 """
 
@@ -98,7 +98,7 @@ def _normalise_node_geometry(payload: dict[str, Any]) -> dict[str, Any]:
     Overpass's own JSON puts a node's location directly on ``lat``/``lon``
     (there's no member/way to have a "geometry" list of), but
     retrieve_osm_pbf.py normalises nodes to the same list-of-points shape as
-    everything else, so clean_osm_data.py can treat all three element types
+    everything else, so clean.py can treat all three element types
     uniformly regardless of source.
     """
     elements = []

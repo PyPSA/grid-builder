@@ -708,7 +708,7 @@ def _add_transformers(buses: gpd.GeoDataFrame, geo_crs: str) -> gpd.GeoDataFrame
     return all_transformers[["transformer_id", *columns]]
 
 
-def build_osm_network(
+def build_network(
     substations: gpd.GeoDataFrame,
     substations_polygon: gpd.GeoDataFrame,
     lines: gpd.GeoDataFrame,
@@ -724,7 +724,7 @@ def build_osm_network(
     gpd.GeoDataFrame,
     gpd.GeoDataFrame,
 ]:
-    """Create buses, AC lines, and transformers from clean_osm_data's output.
+    """Create buses, AC lines, and transformers from clean's output.
 
     Also returns two polygon views for visualisation: ``stations_polygon``
     (the clustered station shapes from station-seed buffering, keyed by
@@ -942,10 +942,10 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
-        snakemake = mock_snakemake("build_osm_network")
+        snakemake = mock_snakemake("build_network")
 
     configure_logging(snakemake.log[0])
-    buses, lines, transformers, stations_polygon, buses_polygon = build_osm_network(
+    buses, lines, transformers, stations_polygon, buses_polygon = build_network(
         gpd.read_file(snakemake.input.substations),
         gpd.read_file(snakemake.input.substations_polygon),
         gpd.read_file(snakemake.input.lines),

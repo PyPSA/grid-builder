@@ -6,9 +6,9 @@ from pathlib import Path
 
 # Both retrieve_osm_pbf and retrieve_osm_overpass produce this same fixed
 # set of six files per country (routes_relation included even when
-# retrieve.include_relations is off, just empty) — see either script's
+# network.include_relations is off, just empty) — see either script's
 # module docstring for why relations aren't optional at the retrieval layer
-# even though clean_osm_data only ever reads routes_relation.json when the
+# even though clean only ever reads routes_relation.json when the
 # config flag is on. Only one of the two rules below is ever defined, since
 # retrieve.source picks exactly one implementation for the same output
 # paths — defining both unconditionally would make Snakemake's DAG
@@ -22,7 +22,7 @@ _OSM_FEATURES = [
     "routes_relation",
 ]
 _OSM_OUTPUTS = {
-    feature: f"<resources>/osm/retrieve/{{country}}_{feature}.json"
+    feature: f"<resources>/retrieve/{{country}}_{feature}.json"
     for feature in _OSM_FEATURES
 }
 
@@ -38,7 +38,7 @@ if config["retrieve"]["source"] == "geofabrik":
             "../envs/retrieve.yaml"
         threads: 1
         params:
-            include_relations=config["retrieve"]["include_relations"],
+            include_relations=config["network"]["include_relations"],
             force_redownload=config["retrieve"]["force_redownload"],
             data_dir=str(Path(workflow.basedir).parent / "data" / "earth-osm"),
         message:
@@ -57,7 +57,7 @@ elif config["retrieve"]["source"] == "overpass":
             "../envs/retrieve.yaml"
         threads: 1
         params:
-            include_relations=config["retrieve"]["include_relations"],
+            include_relations=config["network"]["include_relations"],
             overpass_api=config["retrieve"]["overpass_api"].model_dump(mode="json"),
         message:
             "Retrieve OSM power features for one country from the Overpass API."
@@ -68,7 +68,7 @@ elif config["retrieve"]["source"] == "overpass":
 rule retrieve_osm_all:
     input:
         expand(
-            "<resources>/osm/retrieve/{country}_{feature}.json",
+            "<resources>/retrieve/{country}_{feature}.json",
             country=config["countries"],
             feature=_OSM_FEATURES,
         ),

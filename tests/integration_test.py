@@ -81,7 +81,7 @@ def test_snakemake_integration_testing(module_path, tmp_path):
             shutil.copytree(tmp_path / "logs", log_dir, dirs_exist_ok=True)
 
     assert result.returncode == 0, run_log.read_text(encoding="utf-8")
-    output_dir = tmp_path / "resources/grid-builder/osm/retrieve"
+    output_dir = tmp_path / "resources/grid-builder/retrieve"
     for feature in ("substations_way", "lines_way"):
         payload = json.loads(
             (output_dir / f"benin_{feature}.json").read_text(encoding="utf-8")
@@ -90,7 +90,7 @@ def test_snakemake_integration_testing(module_path, tmp_path):
         assert elements, f"No {feature} records retrieved"
         assert all(item["geometry"] for item in elements)
 
-    build_dir = tmp_path / "resources/grid-builder/osm/build"
+    build_dir = tmp_path / "resources/grid-builder/build"
     for component in ("buses", "lines", "transformers"):
         with (build_dir / "csv" / f"{component}.csv").open(encoding="utf-8") as file:
             rows = list(csv.DictReader(file))

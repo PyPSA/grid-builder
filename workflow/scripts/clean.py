@@ -66,6 +66,17 @@ def _apply_corrections(column: pd.Series, steps: list[dict[str, Any]]) -> pd.Ser
     for step in steps:
         if "lower" in step:
             column = column.str.lower()
+        elif "exact" in step:
+            # Whole-value match, unlike "replace" below: some OSM contributors
+            # tag voltage with a crude word like "medium" instead of a number,
+            # but "replace"'s substring match would also corrupt that same
+            # word appearing inside unrelated freeform text (seen for real:
+            # a garbage voltage tag containing "amperes" and "equipment" had
+            # every "m" in it expanded into "33000" by a substring rule for
+            # exactly this case, ballooning into a 30+ digit value that
+            # overflowed int64 in _filter_by_voltage).
+            pattern, replacement = step["exact"]
+            column = column.where(column != pattern, replacement)
         else:
             pattern, replacement = step["replace"]
             column = column.str.replace(pattern, replacement, regex=False)
@@ -189,6 +200,13 @@ def _filter_by_voltage(
 
     list_voltages = df["voltage"].str.split(";").explode().unique().astype(str)
     list_voltages = list_voltages[np.vectorize(str.isnumeric)(list_voltages)]
+    # A purely-numeric string still isn't necessarily a real voltage: crowd-
+    # sourced OSM tags occasionally clean up into a huge digit string (e.g. a
+    # freeform note misusing the voltage key) that overflows astype(int)'s
+    # fixed-width C long. The highest real-world transmission voltage is
+    # ~1,100 kV (7 digits), so anything past 9 digits is unambiguously noise,
+    # not a value some future config's min_voltage might legitimately want.
+    list_voltages = list_voltages[np.vectorize(len)(list_voltages) <= 9]
     list_voltages = list_voltages.astype(int)
     list_voltages = list_voltages[list_voltages >= int(min_voltage)]
     list_voltages = list_voltages.astype(str)
@@ -667,11 +685,29 @@ def _check_if_ways_in_multi(members: list[str], longer_list: Any) -> bool:
 
 
 def _create_line(row: pd.Series) -> tuple[Any, list[str]]:
-    """Merge a relation's member ways into one line, dropping closed rings (substations)."""
+    """Merge a relation's member ways into one line, dropping closed rings (substations).
+
+    A relation whose members are all nodes (route relations occasionally
+    tag only their endpoint substations, no way) has no "geometry" key on
+    any member at all, so ``pd.json_normalize`` never creates that column;
+    without the guard below, ``dropna(subset=["geometry"])`` raises
+    ``KeyError`` instead of just finding nothing to merge. The empty-``df``
+    short-circuit after it sidesteps a second, separate pandas quirk: on an
+    empty-but-multi-column frame, ``.apply(..., axis=1)`` can't infer a
+    per-row return shape and hands back an empty *DataFrame* rather than a
+    Series, which then fails to assign into a single column. The caller
+    already drops any relation whose resulting geometry isn't a
+    LineString, which ``linemerge([])`` (an empty GeometryCollection)
+    satisfies for free.
+    """
     df = pd.json_normalize(row["members"])
+    if "geometry" not in df.columns:
+        df["geometry"] = pd.NA
     df["ref"] = df["ref"].astype(str)
     df["ways"] = "way/" + df["ref"]
     df = df.dropna(subset=["geometry"])
+    if df.empty:
+        return linemerge([]), []
     df["geometry"] = df.apply(_create_linestring, axis=1)
     closed_geom = df["geometry"].apply(lambda x: x.is_closed)
 
@@ -916,7 +952,7 @@ def _region_ac_hz(
     return _format_hz(hz)
 
 
-def clean_osm_data(
+def clean(
     inputs: dict[str, list[str]],
     network: dict[str, Any],
     regions: dict[str, Any],
@@ -1163,11 +1199,11 @@ if __name__ == "__main__":
     if "snakemake" not in globals():
         from scripts._helpers import mock_snakemake
 
-        snakemake = mock_snakemake("clean_osm_data")
+        snakemake = mock_snakemake("clean")
 
     configure_logging(snakemake.log[0])
     inputs = {name: list(paths) for name, paths in snakemake.input.items()}
-    buses, polygons, lines = clean_osm_data(
+    buses, polygons, lines = clean(
         inputs,
         snakemake.params.network,
         snakemake.params.regions,
