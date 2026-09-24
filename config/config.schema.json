@@ -63,6 +63,11 @@
           "description": "Enable caching of primary feature data in earth-osm",
           "type": "boolean"
         },
+        "include_relations": {
+          "default": false,
+          "description": "Additionally retrieve OSM route=power relations from the Overpass API, so clean_osm_data can group their member ways into a single line matching the relation's real-world circuit",
+          "type": "boolean"
+        },
         "target_date": {
           "anyOf": [
             {

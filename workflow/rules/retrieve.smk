@@ -35,6 +35,23 @@ rule retrieve_osm:
         "../scripts/retrieve_osm.py"
 
 
+rule retrieve_osm_relations:
+    output:
+        json="<resources>/osm/out/{country}_relation.json",
+    log:
+        "<logs>/retrieve_osm_relations/{country}.log",
+    conda:
+        "../envs/retrieve.yaml"
+    threads: 1
+    params:
+        source=config["retrieve"]["source"],
+        force_redownload=config["retrieve"]["force_redownload"],
+    message:
+        "Retrieve OSM route=power relations for one country."
+    script:
+        "../scripts/retrieve_osm_relations.py"
+
+
 rule retrieve_osm_all:
     input:
         csv=expand(

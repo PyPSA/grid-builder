@@ -22,6 +22,8 @@ rule build_osm_network:
     threads: 1
     params:
         station_merge_distance_m=config["network"]["station_merge_distance_m"],
+        under_construction=config["network"]["under_construction"],
+        remove_after=config["network"]["remove_after"],
     message:
         "Building a connected generic OSM network."
     script:

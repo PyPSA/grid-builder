@@ -68,6 +68,14 @@ class RetrieveConfig(ConfigModel):
     cache_primary: bool = Field(
         False, description="Enable caching of primary feature data in earth-osm"
     )
+    include_relations: bool = Field(
+        False,
+        description=(
+            "Additionally retrieve OSM route=power relations from the Overpass "
+            "API, so clean_osm_data can group their member ways into a single "
+            "line matching the relation's real-world circuit"
+        ),
+    )
     target_date: datetime | None = Field(
         None,
         description="Optional historical date for data retrieval in ISO 8601 datetime format",

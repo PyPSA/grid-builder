@@ -10,6 +10,14 @@ rule clean_osm_data:
             country=config["countries"],
             feature=config["retrieve"]["features"],
         ),
+        relations=(
+            expand(
+                "<resources>/osm/out/{country}_relation.json",
+                country=config["countries"],
+            )
+            if config["retrieve"]["include_relations"]
+            else []
+        ),
     output:
         substations="<resources>/osm/clean/substations.geojson",
         substations_polygon="<resources>/osm/clean/substations_polygon.geojson",
