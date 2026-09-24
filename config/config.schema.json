@@ -31,11 +31,6 @@
           "description": "Force refresh of cached data",
           "type": "boolean"
         },
-        "include_relations": {
-          "default": true,
-          "description": "Additionally retrieve OSM route=power/power=circuit relations, so clean_osm_data can group their member ways into a single line matching the relation's real-world circuit",
-          "type": "boolean"
-        },
         "target_date": {
           "anyOf": [
             {
@@ -99,6 +94,11 @@
       "additionalProperties": false,
       "description": "Global assumptions for cleaning and connecting OSM grid features.",
       "properties": {
+        "include_relations": {
+          "default": true,
+          "description": "Whether the network should consider OSM route=power/power=circuit relations, grouping their member ways into a single line matching the relation's real-world circuit; retrieval respects this too, so relations aren't fetched at all when it's off",
+          "type": "boolean"
+        },
         "minimum_voltage_kv": {
           "default": 220.0,
           "description": "Minimum nominal AC voltage retained from OSM, in kV",
@@ -209,9 +209,50 @@
       "description": "Country-specific network overrides loaded from config/regions",
       "type": "object"
     },
+    "interactive_map": {
+      "additionalProperties": false,
+      "description": "Geometry simplification and coordinate rounding for build_interactive_map.py.",
+      "properties": {
+        "coordinate_decimals": {
+          "default": 5,
+          "description": "Decimal places kept for coordinates embedded in the interactive map; 5 is about 1.1m of precision at the equator, comfortably below every simplification tolerance below",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "simplify_geometries": {
+          "additionalProperties": false,
+          "description": "Douglas-Peucker simplification tolerances for the interactive map.",
+          "properties": {
+            "enable": {
+              "default": true,
+              "description": "Whether to simplify station/bus-polygon/line geometries before embedding them in the interactive map",
+              "type": "boolean"
+            },
+            "stations_m": {
+              "default": 100.0,
+              "description": "Simplification tolerance for station polygon outlines, in metres",
+              "minimum": 0,
+              "type": "number"
+            },
+            "buses_polygon_m": {
+              "default": 5.0,
+              "description": "Simplification tolerance for individual bus/substation footprint polygons, in metres",
+              "minimum": 0,
+              "type": "number"
+            },
+            "lines_m": {
+              "default": 30.0,
+              "description": "Simplification tolerance for line geometries, in metres",
+              "minimum": 0,
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
     "crs": {
       "additionalProperties": false,
-      "description": "Coordinate reference systems used throughout clean_osm_data/build_osm_network.",
+      "description": "Coordinate reference systems used throughout clean/build_network.",
       "properties": {
         "geo": {
           "default": "EPSG:4326",

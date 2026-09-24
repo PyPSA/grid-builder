@@ -5,5 +5,7 @@ grid_builder:
   retrieve:
     source: geofabrik
     force_redownload: false
-    include_relations: false
     target_date:
+
+  network:
+    include_relations: false

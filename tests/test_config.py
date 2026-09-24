@@ -49,7 +49,7 @@ def test_generated_config_matches_repository(tmp_path):
     assert schema == json.loads((config_dir / "config.schema.json").read_text())
     validated = validate_config(defaults)
     assert validated.retrieve.overpass_api.max_tries == 5
-    assert validated.retrieve.include_relations is True
+    assert validated.network.include_relations is True
     assert validated.network.frequency_hz.AC == 50.0
     assert validated.network.frequency_hz.DC == 0.0
     assert validated.network.remove_under_construction is True
