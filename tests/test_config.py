@@ -20,11 +20,18 @@ from workflow.scripts._schema import (
     [
         {"countries": []},
         {"countries": ["not-a-country"]},
-        {"retrieve": {"features": []}},
         {"retrieve": {"source": "unsupported"}},
-        {"retrieve": {"mp": True}},
         {"retrieve": {"target_date": "not-a-date"}},
         {"retrieve": {"typo": True}},
+        {"retrieve": {"overpass_api": {"max_tries": 0}}},
+        {"retrieve": {"overpass_api": {"timeout": 0}}},
+        {"retrieve": {"overpass_api": {"user_agent": {"typo": True}}}},
+        {"network": {"frequency_hz": {"AC": -50}}},
+        {"network": {"frequency_hz": {"DC": -1}}},
+        {"network": {"frequency_hz": {"typo": True}}},
+        {"network": {"remove_under_construction": "not-a-bool"}},
+        {"crs": {"typo": True}},
+        {"regions": {"BE": {"frequency_hz": {"typo": True}}}},
     ],
 )
 def test_invalid_config(config):
@@ -40,7 +47,14 @@ def test_generated_config_matches_repository(tmp_path):
     schema = generate_config_schema(str(tmp_path / "config.schema.json"))
     assert defaults == yaml.safe_load((config_dir / "config.yaml").read_text())
     assert schema == json.loads((config_dir / "config.schema.json").read_text())
-    assert validate_config(defaults).retrieve.mp is False
+    validated = validate_config(defaults)
+    assert validated.retrieve.overpass_api.max_tries == 5
+    assert validated.retrieve.include_relations is True
+    assert validated.network.frequency_hz.AC == 50.0
+    assert validated.network.frequency_hz.DC == 0.0
+    assert validated.network.remove_under_construction is True
+    assert validated.crs.geo == "EPSG:4326"
+    assert validated.crs.distance == "EPSG:3035"
 
 
 def test_selected_regions_load_checked_in_overrides(tmp_path):
@@ -59,3 +73,12 @@ def test_selected_regions_load_checked_in_overrides(tmp_path):
         "BE": {"minimum_voltage_kv": 225},
         "NL": {"station_merge_distance_m": 600},
     }
+
+
+def test_regional_frequency_override_falls_back_per_field():
+    """A region overriding only AC still inherits the network default for DC."""
+    config = validate_config({"regions": {"US": {"frequency_hz": {"AC": 60.0}}}})
+    us_override = config.regions["US"].frequency_hz
+    assert us_override.AC == 60.0
+    assert us_override.DC is None
+    assert config.network.frequency_hz.AC == 50.0

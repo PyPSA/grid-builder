@@ -4,13 +4,6 @@ grid_builder:
 
   retrieve:
     source: geofabrik
-    primary_name: power
-    features:
-      - substation
-      - line
-      - cable
     force_redownload: false
-    mp: false
-    stream_backend: true
-    cache_primary: false
+    include_relations: false
     target_date:

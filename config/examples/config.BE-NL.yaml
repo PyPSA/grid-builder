@@ -5,17 +5,9 @@ countries:
 
 retrieve:
   source: geofabrik
-  features:
-    - substation
-    - line
-    - cable
-  # Groups member ways of route=power relations into one line per real
-  # circuit, matching how PyPSA-Eur's Overpass-based reference build is
-  # structured. Adds an Overpass API call per country.
   include_relations: true
 
 network:
   minimum_voltage_kv: 220.0
   station_merge_distance_m: 500.0
-  under_construction: remove
-  remove_after: 2025-12-31
+  remove_after: 2026-12-31

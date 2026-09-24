@@ -8,7 +8,7 @@ A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 ## About
 
-`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure with earth-osm and builds a generic high-voltage network. It can be imported into another `snakemake` workflow.
+`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. It can be imported into another `snakemake` workflow.
 
 The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
 
@@ -18,30 +18,35 @@ This module follows the Modelblocks conventions (https://www.modelblocks.org). F
 
 Currently implemented:
 
-1. Retrieve OSM substations, lines, and cables by country with earth-osm.
-2. Clean native earth-osm CSV exports, filtering voltage, frequency, construction status, and future assets.
+1. Retrieve OSM substations, lines, cables, and (optionally) circuit relations by country, either from a cached local Geofabrik PBF extract or the live Overpass API.
+2. Clean the raw retrieval output, filtering voltage, frequency, construction status, and future assets, and grouping relation member ways into one line per real-world circuit.
 3. Merge nearby stations and line endpoints into generic buses, AC lines, and transformers.
 
 ## Configuration
 
-Set `countries` in the main configuration to select the scope. For every selected ISO code, the workflow loads an optional `config/regions/config.<ISO>.yaml` file; values placed directly in `regions` in the main configuration take precedence. The [BE+NL example](./config/examples/config.BE-NL.yaml) is a runnable development scope.
-
-Please consult the configuration [README](./config/README.md) and the [configuration example](./config/config.yaml) for the available controls.
+Configuration lives in [`config/config.yaml`](./config/config.yaml), validated against a generated JSON schema. See the configuration [README](./config/README.md) for the available controls, including retrieval backends, regional overrides, and personal/local settings.
 
 ## Input / output structure
 
 Please consult the [interface file](./INTERFACE.yaml) for more information.
 
-Raw retrieval outputs use `<resources>/osm/out/{country}_{feature}.{csv,geojson}`.
-Clean features use `<resources>/osm/clean/*.geojson`; generic network components
-use `<resources>/osm/build/{buses,lines,transformers}.csv` and matching GeoJSON
-files. Country logs use `<logs>/retrieve_osm/{country}.log`. The integration
-example sets these roots to `resources/grid-builder` and `logs/grid-builder`.
-Downloaded PBF files are cached in `data/earth-osm` in this checkout.
+Raw retrieval outputs use `<resources>/osm/retrieve/{country}_{feature}.json`, one
+file per country and feature (`lines_way`, `cables_way`, `substations_way`,
+`substations_node`, `substations_relation`, `routes_relation`). Both retrieval
+backends write the same raw-Overpass-JSON shape, so downstream cleaning doesn't
+need to know which one ran. Clean features use `<resources>/osm/clean/*.geojson`;
+generic network components use `<resources>/osm/build/csv/{buses,lines,transformers}.csv`
+and matching GeoJSON files under `<resources>/osm/build/geojson/`, which also
+includes `stations_polygon.geojson` (clustered station shapes) and
+`buses_polygon.geojson` (substation polygons scoped to the buses in the output).
+Country logs use `<logs>/retrieve_osm_pbf/{country}.log` or
+`<logs>/retrieve_osm_overpass/{country}.log`, depending on `retrieve.source`. The
+integration example sets these roots to `resources/grid-builder` and
+`logs/grid-builder`. Downloaded PBF files (used for `retrieve.source: geofabrik`)
+are cached in `data/earth-osm` in this checkout.
 
-The initial topology path uses earth-osm's native node and way records. Support
-for relation-based and DC assets is a subsequent extension of the same retrieval
-interface.
+DC assets (links, converters, switching stations) are out of scope: this workflow
+builds a generic AC topology only, with no PyPSA-specific line types or capacities.
 
 ## Development
 
@@ -81,10 +86,9 @@ components and country logging. It needs internet access on the first run to
 install dependencies and download Benin's OSM extract; subsequent runs can reuse
 those caches. Test logs are retained in `tests/integration/logs`.
 
-Each country job runs with one worker. Keep `retrieve.mp: false`: earth-osm 3.0.2
-does not expose a worker limit, so enabling its multiprocessing would bypass
-Snakemake's CPU allocation. Snakemake can still run multiple country jobs in
-parallel using `--cores`.
+Each retrieval job runs with one worker (`threads: 1`), so CPU allocation stays
+entirely under Snakemake's control. Snakemake can still run multiple country jobs
+in parallel using `--cores`.
 
 If this checkout is moved and commands fail with a `bad interpreter` error,
 rebuild the installed environment with `pixi reinstall --locked`.

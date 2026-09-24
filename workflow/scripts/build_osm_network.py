@@ -2,24 +2,20 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Build a connected, PyPSA-independent network from clean OSM features.
+"""Build a connected, generic network from clean OSM features.
 
-Ported from PyPSA-Eur's ``scripts/build_osm_network.py`` (fix-osm branch):
-the virtual-endpoint line merging, station clustering, and transformer
-inference are near-verbatim transfers, since they operate purely on
-geometry and don't depend on PyPSA. What's dropped is everything downstream
-of a PyPSA ``Network`` object — line-type capacity assignment
-(``_determine_bus_capacity``), DC links/converters/switching stations, and
-country reassignment via external country-shape polygons (this project has
-no such input; country is instead carried through from retrieval as OSM
-provenance, same as before this port).
+Line endpoints are merged through virtual buses using deterministic
+geometry rules, nearby substations and line endpoints are clustered into
+stations via buffer-and-union, and transformers are inferred between
+voltage-level buses at the same station. The result is a generic
+bus/line/transformer schema, with each component keeping its originating
+OSM identifiers and geometry.
 """
 
 import itertools
 import logging
 import string
 from itertools import combinations
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
@@ -27,6 +23,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
+from scripts._helpers import BUS_TOL, configure_logging
 from shapely import get_point
 from shapely.algorithms.polylabel import polylabel
 from shapely.geometry import LineString, MultiLineString, Point
@@ -37,38 +34,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GEO_CRS = "EPSG:4326"
-DISTANCE_CRS = "EPSG:3035"
-BUS_TOL = 500  # metres
 COORD_PRECISION = 8
 
 
-def configure_logging(log_path: str) -> None:
-    """Send rule and dependency logging to the Snakemake log file."""
-    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
-    logging.getLogger().addHandler(handler)
-    logging.getLogger().setLevel(logging.INFO)
-
-
-def _empty_geodataframe(columns: list[str], crs: str = GEO_CRS) -> gpd.GeoDataFrame:
+def _empty_geodataframe(columns: list[str], crs: str) -> gpd.GeoDataFrame:
+    """Build an empty GeoDataFrame with the given non-geometry ``columns``."""
     return gpd.GeoDataFrame(
         {column: [] for column in columns}, geometry=gpd.GeoSeries([], crs=crs), crs=crs
     )
 
 
-# ---------------------------------------------------------------------------
-# Ported from PyPSA-Eur's scripts/build_osm_network.py (fix-osm branch).
-# ---------------------------------------------------------------------------
-
-
 def _treat_under_construction(
-    df: pd.DataFrame, decision: str, remove_after: str | None
+    df: pd.DataFrame, remove_under_construction: bool, remove_after: str | None
 ) -> pd.DataFrame:
-    if decision == "remove":
+    """Drop under-construction rows (if ``remove_under_construction``) and rows started after ``remove_after``."""
+    if remove_under_construction:
         len_before = len(df)
         df = df.drop(index=df.index[df["under_construction"]])
         logger.info("Removed %d elements under construction.", len_before - len(df))
@@ -110,6 +90,7 @@ def _merge_identical_lines(lines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def _remove_loops_from_multiline(multiline: Any) -> Any:
+    """Iteratively drop closed rings from a MultiLineString, remerging what remains."""
     elements_initial = (
         list(multiline.geoms)
         if multiline.geom_type == "MultiLineString"
@@ -182,6 +163,7 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
 def _split_linestring_by_point(
     linestring: LineString, points: list[Point]
 ) -> list[LineString]:
+    """Split ``linestring`` at each of ``points`` in turn, returning the resulting segments."""
     list_linestrings = [linestring]
     for point in points:
         temp_list = [split(line, point) for line in list_linestrings]
@@ -190,6 +172,7 @@ def _split_linestring_by_point(
 
 
 def _alpha_suffix(i: int) -> str:
+    """Convert a zero-based index to a spreadsheet-style letter suffix (0->'a', 26->'aa', ...)."""
     suffix = ""
     i += 1
     while i > 0:
@@ -199,10 +182,7 @@ def _alpha_suffix(i: int) -> str:
 
 
 def split_overpassing_lines(
-    lines: gpd.GeoDataFrame,
-    buses: gpd.GeoDataFrame,
-    distance_crs: str = DISTANCE_CRS,
-    tol: float = 1,
+    lines: gpd.GeoDataFrame, buses: gpd.GeoDataFrame, distance_crs: str, tol: float = 1
 ) -> gpd.GeoDataFrame:
     """Split a line at any bus it geometrically overpasses without a shared OSM node."""
     lines = lines.copy()
@@ -267,9 +247,18 @@ def split_overpassing_lines(
 
 
 def _create_merge_mapping(
-    lines: gpd.GeoDataFrame, buses: gpd.GeoDataFrame, buses_polygon: gpd.GeoDataFrame
+    lines: gpd.GeoDataFrame,
+    buses: gpd.GeoDataFrame,
+    buses_polygon: gpd.GeoDataFrame,
+    geo_crs: str,
 ) -> gpd.GeoDataFrame:
-    """Map degree-two virtual buses (same voltage, same circuits) to the lines they join."""
+    """Group lines connected by a pass-through virtual bus into one merged line each.
+
+    A virtual bus qualifies only if it isn't inside a real substation polygon,
+    touches exactly two lines of matching voltage and circuits, and those
+    lines form a connected component via networkx — so only unambiguous
+    merges happen.
+    """
     buses_virtual = buses[buses["bus_id"].str.startswith("virtual")].copy()
     if not buses_polygon.empty:
         intersects_polygon = buses_virtual.intersects(buses_polygon.union_all())
@@ -373,16 +362,17 @@ def _create_merge_mapping(
         "contains_buses",
     ]
     if subgraph_data:
-        return gpd.GeoDataFrame(subgraph_data, crs=GEO_CRS)
-    return gpd.GeoDataFrame(columns=columns, crs=GEO_CRS)
+        return gpd.GeoDataFrame(subgraph_data, crs=geo_crs)
+    return gpd.GeoDataFrame(columns=columns, crs=geo_crs)
 
 
 def _merge_lines_over_virtual_buses(
     lines: gpd.GeoDataFrame,
     buses: gpd.GeoDataFrame,
     merged_lines_map: gpd.GeoDataFrame,
-    distance_crs: str = DISTANCE_CRS,
+    distance_crs: str,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """Apply ``_create_merge_mapping``'s result: drop the absorbed lines/buses, add the merged ones."""
     lines_merged = lines.copy()
     buses_merged = buses.copy()
 
@@ -410,9 +400,9 @@ def _merge_lines_over_virtual_buses(
 def _create_station_seeds(
     buses: gpd.GeoDataFrame,
     buses_polygon: gpd.GeoDataFrame,
+    distance_crs: str,
+    geo_crs: str,
     tol: float = BUS_TOL,
-    distance_crs: str = DISTANCE_CRS,
-    geo_crs: str = GEO_CRS,
 ) -> gpd.GeoDataFrame:
     """Buffer-and-union substations and line endpoints into aggregated station seeds."""
     columns = ["bus_id", "geometry"]
@@ -485,10 +475,7 @@ def _create_station_seeds(
 
 
 def _merge_buses_to_stations(
-    buses: gpd.GeoDataFrame,
-    stations: gpd.GeoDataFrame,
-    distance_crs: str = DISTANCE_CRS,
-    geo_crs: str = GEO_CRS,
+    buses: gpd.GeoDataFrame, stations: gpd.GeoDataFrame, distance_crs: str, geo_crs: str
 ) -> gpd.GeoDataFrame:
     """Keep one bus per (station, voltage); offset multi-voltage stations for visual clarity."""
     buses_all = buses.copy().reset_index(drop=True)
@@ -536,17 +523,18 @@ def _merge_buses_to_stations(
 
 
 def _identify_linestring_between_polygons(
-    multiline: Any, polygon0: Any, polygon1: Any
+    multiline: Any, polygon0: Any, polygon1: Any, geo_crs: str, distance_crs: str
 ) -> Any:
+    """Pick the part of ``multiline`` that touches both ``polygon0`` and ``polygon1``, if any."""
     list_lines = (
         list(multiline.geoms)
         if multiline.geom_type == "MultiLineString"
         else [multiline]
     )
     for line in list_lines:
-        gdf_line = gpd.GeoDataFrame(geometry=[line], crs=GEO_CRS).to_crs(DISTANCE_CRS)
-        gdf_p0 = gpd.GeoDataFrame(geometry=[polygon0], crs=GEO_CRS).to_crs(DISTANCE_CRS)
-        gdf_p1 = gpd.GeoDataFrame(geometry=[polygon1], crs=GEO_CRS).to_crs(DISTANCE_CRS)
+        gdf_line = gpd.GeoDataFrame(geometry=[line], crs=geo_crs).to_crs(distance_crs)
+        gdf_p0 = gpd.GeoDataFrame(geometry=[polygon0], crs=geo_crs).to_crs(distance_crs)
+        gdf_p1 = gpd.GeoDataFrame(geometry=[polygon1], crs=geo_crs).to_crs(distance_crs)
         touches = gdf_line.intersects(gdf_p0.buffer(1e-2)) & gdf_line.intersects(
             gdf_p1.buffer(1e-2)
         )
@@ -558,10 +546,10 @@ def _identify_linestring_between_polygons(
 def _map_endpoints_to_buses(
     connection: gpd.GeoDataFrame,
     buses: gpd.GeoDataFrame,
+    distance_crs: str,
+    geo_crs: str,
     shape: str = "station_polygon",
     id_col: str = "line_id",
-    distance_crs: str = DISTANCE_CRS,
-    geo_crs: str = GEO_CRS,
 ) -> gpd.GeoDataFrame:
     """Map each line's two endpoints to the station polygon (and bus) they fall within."""
     buses_all = buses.copy().set_index("bus_id")
@@ -605,7 +593,11 @@ def _map_endpoints_to_buses(
         if shape == "station_polygon":
             lines_stubs["geometry"] = lines_stubs.apply(
                 lambda row: _identify_linestring_between_polygons(
-                    row["geometry"], row[f"{shape}0"], row[f"{shape}1"]
+                    row["geometry"],
+                    row[f"{shape}0"],
+                    row[f"{shape}1"],
+                    geo_crs=geo_crs,
+                    distance_crs=distance_crs,
                 ),
                 axis=1,
             )
@@ -624,6 +616,7 @@ def _map_endpoints_to_buses(
 
 
 def _add_point_to_line(linestring: LineString, point: Point) -> LineString:
+    """Extend ``linestring`` with a stub segment to ``point``, snapped to its nearer end."""
     start = linestring.boundary.geoms[0]
     end = linestring.boundary.geoms[1]
     dist_to_start = point.distance(start)
@@ -673,9 +666,7 @@ def _extend_lines_to_buses(
     return lines_all.drop(columns=["bus0_point", "bus1_point"])
 
 
-def _add_transformers(
-    buses: gpd.GeoDataFrame, geo_crs: str = GEO_CRS
-) -> gpd.GeoDataFrame:
+def _add_transformers(buses: gpd.GeoDataFrame, geo_crs: str) -> gpd.GeoDataFrame:
     """All-pairs transformers between voltage-level buses of the same real station."""
     buses_all = buses.copy().set_index("bus_id")
     columns = ["bus0", "bus1", "voltage_bus0", "voltage_bus1", "station_id", "geometry"]
@@ -717,24 +708,33 @@ def _add_transformers(
     return all_transformers[["transformer_id", *columns]]
 
 
-# ---------------------------------------------------------------------------
-# Orchestration (adapted: no country-shape reassignment, no DC, no capacity).
-# ---------------------------------------------------------------------------
-
-
 def build_osm_network(
     substations: gpd.GeoDataFrame,
     substations_polygon: gpd.GeoDataFrame,
     lines: gpd.GeoDataFrame,
-    under_construction: str,
+    remove_under_construction: bool,
     remove_after: str | None,
+    geo_crs: str,
+    distance_crs: str,
     merge_distance_m: float = BUS_TOL,
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Create buses, AC lines, and transformers from clean_osm_data's output."""
+) -> tuple[
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+]:
+    """Create buses, AC lines, and transformers from clean_osm_data's output.
+
+    Also returns two polygon views for visualisation: ``stations_polygon``
+    (the clustered station shapes from station-seed buffering, keyed by
+    ``station_id``) and ``buses_polygon`` (the substation polygons scoped to
+    the buses that made it into the output, keyed by ``bus_id``).
+    """
     buses = substations.drop(columns=["country"])
-    buses = _treat_under_construction(buses, under_construction, remove_after).drop(
-        columns=["start_date"]
-    )
+    buses = _treat_under_construction(
+        buses, remove_under_construction, remove_after
+    ).drop(columns=["start_date"])
 
     buses_polygon = substations_polygon[
         substations_polygon["bus_id"].isin(buses["bus_id"])
@@ -745,14 +745,25 @@ def build_osm_network(
         buses_polygon = buses_polygon.drop(columns=["voltage"])
 
     if lines.empty:
-        empty_buses = _empty_geodataframe(["bus_id", "geometry"])
-        empty_lines = _empty_geodataframe(["line_id", "geometry"])
-        empty_transformers = _empty_geodataframe(["transformer_id", "geometry"])
-        return empty_buses, empty_lines, empty_transformers
+        empty_buses = _empty_geodataframe(["bus_id", "geometry"], crs=geo_crs)
+        empty_lines = _empty_geodataframe(["line_id", "geometry"], crs=geo_crs)
+        empty_transformers = _empty_geodataframe(
+            ["transformer_id", "geometry"], crs=geo_crs
+        )
+        empty_stations_polygon = _empty_geodataframe(
+            ["station_id", "geometry"], crs=geo_crs
+        )
+        return (
+            empty_buses,
+            empty_lines,
+            empty_transformers,
+            empty_stations_polygon,
+            buses_polygon,
+        )
 
-    lines = _treat_under_construction(lines, under_construction, remove_after).drop(
-        columns=["start_date"]
-    )
+    lines = _treat_under_construction(
+        lines, remove_under_construction, remove_after
+    ).drop(columns=["start_date"])
     lines = _merge_identical_lines(lines)
 
     buses["voltage"] = (np.floor(buses["voltage"] / 1000) * 1000).astype(
@@ -765,19 +776,27 @@ def build_osm_network(
     buses_line_endings = _add_line_endings(lines)
     buses = pd.concat([buses, buses_line_endings], ignore_index=True)
 
-    lines = split_overpassing_lines(lines, buses)
+    lines = split_overpassing_lines(lines, buses, distance_crs=distance_crs)
 
     bool_virtual = buses["bus_id"].str.startswith("virtual")
     buses = buses[~bool_virtual]
     buses = pd.concat([buses, _add_line_endings(lines)], ignore_index=True)
 
-    lines["length"] = lines.to_crs(DISTANCE_CRS).length
+    lines["length"] = lines.to_crs(distance_crs).length
 
-    merged_lines_map = _create_merge_mapping(lines, buses, buses_polygon)
-    lines, buses = _merge_lines_over_virtual_buses(lines, buses, merged_lines_map)
+    merged_lines_map = _create_merge_mapping(
+        lines, buses, buses_polygon, geo_crs=geo_crs
+    )
+    lines, buses = _merge_lines_over_virtual_buses(
+        lines, buses, merged_lines_map, distance_crs=distance_crs
+    )
 
-    stations = _create_station_seeds(buses, buses_polygon)
-    buses = _merge_buses_to_stations(buses, stations)
+    stations = _create_station_seeds(
+        buses, buses_polygon, distance_crs=distance_crs, geo_crs=geo_crs
+    )
+    buses = _merge_buses_to_stations(
+        buses, stations, distance_crs=distance_crs, geo_crs=geo_crs
+    )
 
     buses["geometry"] = gpd.points_from_xy(
         buses.geometry.x.round(COORD_PRECISION),
@@ -794,7 +813,12 @@ def build_osm_network(
     lines = lines[~lines.line_id.isin(internal_lines)].reset_index(drop=True)
 
     lines = _map_endpoints_to_buses(
-        lines, buses, shape="station_polygon", id_col="line_id"
+        lines,
+        buses,
+        shape="station_polygon",
+        id_col="line_id",
+        distance_crs=distance_crs,
+        geo_crs=geo_crs,
     )
     lines = _extend_lines_to_buses(lines, buses)
 
@@ -806,11 +830,11 @@ def build_osm_network(
     )
     buses = buses[~bool_not_connected].reset_index(drop=True)
 
-    transformers = _add_transformers(buses)
+    transformers = _add_transformers(buses, geo_crs=geo_crs)
 
-    lines["length"] = lines.to_crs(DISTANCE_CRS).length
+    lines["length"] = lines.to_crs(distance_crs).length
 
-    # --- Finalise to this project's generic (non-PyPSA) schema ---------
+    # --- Finalise to this project's generic output schema ---------------
     def _contains_to_osm_ids(value: Any) -> str:
         if isinstance(value, list):
             ids = {item.split("-")[0] for item in value if isinstance(item, str)}
@@ -827,7 +851,7 @@ def build_osm_network(
     buses_out = gpd.GeoDataFrame(
         buses_out[["bus_id", "station_id", "voltage_kv", "osm_ids", "geometry"]],
         geometry="geometry",
-        crs=GEO_CRS,
+        crs=geo_crs,
     )
 
     lines_out = lines.copy()
@@ -849,7 +873,7 @@ def build_osm_network(
             ]
         ],
         geometry="geometry",
-        crs=GEO_CRS,
+        crs=geo_crs,
     )
 
     transformers_out = transformers.copy()
@@ -873,7 +897,7 @@ def build_osm_network(
                 ]
             ],
             geometry="geometry",
-            crs=GEO_CRS,
+            crs=geo_crs,
         )
     else:
         transformers_out = _empty_geodataframe(
@@ -884,15 +908,26 @@ def build_osm_network(
                 "bus1",
                 "voltage_bus0_kv",
                 "voltage_bus1_kv",
-            ]
+            ],
+            crs=geo_crs,
         )
 
-    return buses_out, lines_out, transformers_out
+    stations_polygon_out = stations[["station_id", "geometry"]].copy()
+    buses_polygon_out = buses_polygon.copy()
+
+    return (
+        buses_out,
+        lines_out,
+        transformers_out,
+        stations_polygon_out,
+        buses_polygon_out,
+    )
 
 
 def _write_components(
     components: gpd.GeoDataFrame, csv_path: str, geojson_path: str
 ) -> None:
+    """Write ``components`` as both a WKT-geometry CSV and a GeoJSON file."""
     csv = pd.DataFrame(components.drop(columns="geometry"))
     csv["geometry"] = components.geometry.to_wkt()
     csv.to_csv(csv_path, index=False)
@@ -900,13 +935,20 @@ def _write_components(
 
 
 if __name__ == "__main__":
+    if "snakemake" not in globals():
+        from scripts._helpers import mock_snakemake
+
+        snakemake = mock_snakemake("build_osm_network")
+
     configure_logging(snakemake.log[0])
-    buses, lines, transformers = build_osm_network(
+    buses, lines, transformers, stations_polygon, buses_polygon = build_osm_network(
         gpd.read_file(snakemake.input.substations),
         gpd.read_file(snakemake.input.substations_polygon),
         gpd.read_file(snakemake.input.lines),
-        snakemake.params.under_construction,
+        snakemake.params.remove_under_construction,
         snakemake.params.remove_after,
+        snakemake.params.crs["geo"],
+        snakemake.params.crs["distance"],
         snakemake.params.station_merge_distance_m,
     )
     logger.info(
@@ -922,3 +964,5 @@ if __name__ == "__main__":
         snakemake.output.transformers,
         snakemake.output.transformers_geojson,
     )
+    stations_polygon.to_file(snakemake.output.stations_polygon, driver="GeoJSON")
+    buses_polygon.to_file(snakemake.output.buses_polygon, driver="GeoJSON")

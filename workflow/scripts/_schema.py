@@ -23,62 +23,105 @@ class ConfigModel(BaseModel):
     """Base model with dict-like access for Snakemake compatibility."""
 
     def __getitem__(self, key: str) -> Any:
+        """Read a field by name, e.g. ``config["countries"]``."""
         return getattr(self, key)
 
     def __contains__(self, key: str) -> bool:
+        """True if ``key`` names a field on this model."""
         return hasattr(self, key)
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Read a field by name, falling back to ``default`` if it doesn't exist."""
         return getattr(self, key, default)
 
     def keys(self) -> Iterator[str]:
+        """Iterate over field names."""
         return iter(type(self).model_fields.keys())
 
     def values(self) -> Iterator[Any]:
+        """Iterate over field values."""
         return (getattr(self, k) for k in type(self).model_fields.keys())
 
     def items(self) -> Iterator[tuple[str, Any]]:
+        """Iterate over ``(field name, value)`` pairs."""
         return ((k, getattr(self, k)) for k in type(self).model_fields.keys())
 
 
+class OverpassUserAgentConfig(ConfigModel):
+    """Identifies this tool to the Overpass API, per its fair-use policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_name: str = Field(
+        "grid-builder", description="Project name sent in the User-Agent header"
+    )
+    email: str = Field("", description="Contact email sent in the User-Agent header")
+    website: str = Field(
+        "https://github.com/pypsa/grid-builder",
+        description="Project URL sent in the User-Agent header",
+    )
+
+
+class OverpassApiConfig(ConfigModel):
+    """Settings for retrieve_osm_overpass.py's own Overpass API client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(
+        "https://overpass-api.de/api/interpreter",
+        description="Overpass API endpoint to query",
+    )
+    max_tries: int = Field(
+        5, description="Maximum number of attempts per query before giving up", ge=1
+    )
+    timeout: int = Field(600, description="Per-request timeout in seconds", gt=0)
+    user_agent: OverpassUserAgentConfig = Field(default_factory=OverpassUserAgentConfig)
+
+
 class RetrieveConfig(ConfigModel):
+    """Settings for retrieve_osm_pbf.py/retrieve_osm_overpass.py."""
+
     model_config = ConfigDict(extra="forbid")
 
     source: Literal["geofabrik", "overpass"] = Field(
         "geofabrik", description="Retrieval backend for OSM data"
     )
-    primary_name: str = Field(
-        "power", description="Primary OSM feature to retrieve (e.g., 'power')"
-    )
-    features: list[str] = Field(
-        default=["substation", "line", "cable"],
-        description="OSM features to retrieve for each country",
-        min_length=1,
-    )
-    force_redownload: bool = Field(
-        False, description="Force refresh of cached data in earth-osm"
-    )
-    mp: Literal[False] = Field(
-        False,
-        description="Must be false: earth-osm multiprocessing does not respect Snakemake's CPU allocation",
-    )
-    stream_backend: bool = Field(
-        True, description="Enable streaming backend in earth-osm"
-    )
-    cache_primary: bool = Field(
-        False, description="Enable caching of primary feature data in earth-osm"
-    )
+    force_redownload: bool = Field(False, description="Force refresh of cached data")
     include_relations: bool = Field(
-        False,
+        True,
         description=(
-            "Additionally retrieve OSM route=power relations from the Overpass "
-            "API, so clean_osm_data can group their member ways into a single "
-            "line matching the relation's real-world circuit"
+            "Additionally retrieve OSM route=power/power=circuit relations, "
+            "so clean_osm_data can group their member ways into a single line "
+            "matching the relation's real-world circuit"
         ),
     )
     target_date: datetime | None = Field(
         None,
-        description="Optional historical date for data retrieval in ISO 8601 datetime format",
+        description=(
+            "Optional historical date for data retrieval in ISO 8601 datetime "
+            "format. Only honoured for retrieve.source: geofabrik."
+        ),
+    )
+    overpass_api: OverpassApiConfig = Field(
+        default_factory=OverpassApiConfig,
+        description="Settings for retrieve_osm_overpass.py's Overpass API client",
+    )
+
+
+class FrequencyConfig(ConfigModel):
+    """AC/DC frequency in Hz, used to classify and normalise OSM ``frequency`` tags."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    AC: float = Field(
+        50.0,
+        description="AC frequency in Hz (50 for most of the world; 60 for the Americas and parts of Asia)",
+        gt=0,
+    )
+    DC: float = Field(
+        0.0,
+        description="Frequency tag value OSM uses to mark a DC line/converter",
+        ge=0,
     )
 
 
@@ -90,18 +133,49 @@ class NetworkConfig(ConfigModel):
     minimum_voltage_kv: float = Field(
         220.0, description="Minimum nominal AC voltage retained from OSM, in kV", gt=0
     )
+    frequency_hz: FrequencyConfig = Field(
+        default_factory=FrequencyConfig,
+        description="AC/DC frequency in Hz; override per country in config/regions for e.g. 60 Hz grids",
+    )
     station_merge_distance_m: float = Field(
         500.0,
         description="Distance used to merge nearby substations and line endpoints, in metres",
         gt=0,
     )
-    under_construction: Literal["keep", "remove"] = Field(
-        "remove", description="Whether assets tagged as under construction are retained"
+    remove_under_construction: bool = Field(
+        True, description="Whether assets tagged as under construction are dropped"
     )
     remove_after: date | None = Field(
-        date(2025, 12, 31),
+        date(2026, 12, 31),
         description="Exclude assets with a later planned start date; null disables this filter",
     )
+
+
+class CrsConfig(ConfigModel):
+    """Coordinate reference systems used throughout clean_osm_data/build_osm_network."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    geo: str = Field(
+        "EPSG:4326", description="Geographic CRS used to store and exchange coordinates"
+    )
+    distance: str = Field(
+        "EPSG:3035",
+        description=(
+            "Equal-area/equal-distance CRS used for buffering and length "
+            "calculations; must suit the geographic extent in use (the "
+            "default, ETRS89-LAEA, covers Europe)"
+        ),
+    )
+
+
+class RegionalFrequencyConfig(ConfigModel):
+    """Optional per-country AC/DC override; unset fields fall back to network.frequency_hz."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    AC: float | None = Field(None, gt=0)
+    DC: float | None = Field(None, ge=0)
 
 
 class RegionalNetworkConfig(ConfigModel):
@@ -110,9 +184,12 @@ class RegionalNetworkConfig(ConfigModel):
     model_config = ConfigDict(extra="forbid")
 
     minimum_voltage_kv: float | None = Field(None, gt=0)
+    frequency_hz: RegionalFrequencyConfig | None = Field(None)
 
 
 class ConfigSchema(ConfigModel):
+    """Top-level grid-builder config."""
+
     model_config = ConfigDict(extra="forbid")
 
     countries: list[str] = Field(
@@ -124,6 +201,7 @@ class ConfigSchema(ConfigModel):
     @field_validator("countries")
     @classmethod
     def validate_country_identifiers(cls, v: list[str]) -> list[str]:
+        """Reject any country not recognised by earth-osm's region list."""
         invalid = [c for c in v if c not in _VALID_REGIONS]
         if invalid:
             raise ValueError(
@@ -134,7 +212,7 @@ class ConfigSchema(ConfigModel):
 
     retrieve: RetrieveConfig = Field(
         default_factory=RetrieveConfig,
-        description="Configuration for OSM data retrieval using earth-osm",
+        description="Configuration for OSM data retrieval",
     )
     network: NetworkConfig = Field(
         default_factory=NetworkConfig,
@@ -143,6 +221,10 @@ class ConfigSchema(ConfigModel):
     regions: dict[str, RegionalNetworkConfig] = Field(
         default_factory=dict,
         description="Country-specific network overrides loaded from config/regions",
+    )
+    crs: CrsConfig = Field(
+        default_factory=CrsConfig,
+        description="Coordinate reference systems used throughout clean_osm_data/build_osm_network",
     )
 
 
@@ -202,6 +284,7 @@ def generate_config_defaults(path: str = "config/config.yaml") -> dict:
     yaml_writer.indent(mapping=2, sequence=2, offset=0)
 
     def str_representer(dumper, data):
+        """Quote strings only where needed: block style for multiline, else plain/quoted."""
         TAG = "tag:yaml.org,2002:str"
         if "\n" in data:
             return dumper.represent_scalar(TAG, data, style="|")
@@ -217,6 +300,10 @@ def generate_config_defaults(path: str = "config/config.yaml") -> dict:
     for key, value in defaults.items():
         data[key] = value
 
+    # Blank line between top-level keys for readability.
+    for key in list(data.keys())[1:]:
+        data.yaml_set_comment_before_after_key(key, before="\n")
+
     with open(path, "w") as f:
         yaml_writer.dump(data, f)
 
@@ -227,6 +314,7 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
     """Generate JSON schema file and return the schema dict."""
 
     def resolve_refs(obj, defs):
+        """Inline every ``$ref`` against pydantic's ``$defs``, keeping any local description."""
         if isinstance(obj, dict):
             if "$ref" in obj:
                 ref_name = obj["$ref"].split("/")[-1]
@@ -241,6 +329,7 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
         return obj
 
     def sanitize_for_json(obj):
+        """Replace non-JSON-safe values (``inf``/``-inf``) with ``None``."""
         if isinstance(obj, dict):
             return {k: sanitize_for_json(v) for k, v in obj.items()}
         elif isinstance(obj, list):
@@ -250,6 +339,7 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
         return obj
 
     def remove_nested_titles(obj, is_root=True):
+        """Drop pydantic's auto-generated ``title`` on every level but the root."""
         if isinstance(obj, dict):
             result = {}
             for k, v in obj.items():
@@ -262,6 +352,7 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
         return obj
 
     def remove_object_type(obj, is_root=True):
+        """Drop the redundant ``"type": "object"`` on nested models that already have ``properties``."""
         if isinstance(obj, dict):
             result = {}
             for k, v in obj.items():

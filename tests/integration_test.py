@@ -81,31 +81,36 @@ def test_snakemake_integration_testing(module_path, tmp_path):
             shutil.copytree(tmp_path / "logs", log_dir, dirs_exist_ok=True)
 
     assert result.returncode == 0, run_log.read_text(encoding="utf-8")
-    output_dir = tmp_path / "resources/grid-builder/osm/out"
-    for feature in ("substation", "line"):
-        with (output_dir / f"benin_{feature}.csv").open(encoding="utf-8") as file:
-            rows = list(csv.DictReader(file))
-        geojson = json.loads(
-            (output_dir / f"benin_{feature}.geojson").read_text(encoding="utf-8")
+    output_dir = tmp_path / "resources/grid-builder/osm/retrieve"
+    for feature in ("substations_way", "lines_way"):
+        payload = json.loads(
+            (output_dir / f"benin_{feature}.json").read_text(encoding="utf-8")
         )
-        assert rows, f"No {feature} records retrieved"
-        assert geojson["type"] == "FeatureCollection"
-        assert len(geojson["features"]) == len(rows)
-        assert all(item["geometry"] for item in geojson["features"])
+        elements = payload["elements"]
+        assert elements, f"No {feature} records retrieved"
+        assert all(item["geometry"] for item in elements)
 
     build_dir = tmp_path / "resources/grid-builder/osm/build"
     for component in ("buses", "lines", "transformers"):
-        with (build_dir / f"{component}.csv").open(encoding="utf-8") as file:
+        with (build_dir / "csv" / f"{component}.csv").open(encoding="utf-8") as file:
             rows = list(csv.DictReader(file))
         assert rows or component == "transformers"
 
-    with (build_dir / "lines.csv").open(encoding="utf-8") as file:
+    with (build_dir / "csv" / "lines.csv").open(encoding="utf-8") as file:
         built_lines = list(csv.DictReader(file))
     assert all(row["bus0"] != row["bus1"] for row in built_lines)
     assert all(float(row["voltage_kv"]) >= 220 for row in built_lines)
 
-    country_log = (tmp_path / "logs/grid-builder/retrieve_osm/benin.log").read_text(
+    for geojson_name in ("stations_polygon", "buses_polygon"):
+        polygons = json.loads(
+            (build_dir / "geojson" / f"{geojson_name}.geojson").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert polygons["type"] == "FeatureCollection"
+
+    country_log = (tmp_path / "logs/grid-builder/retrieve_osm_pbf/benin.log").read_text(
         encoding="utf-8"
     )
-    assert "Successfully retrieved OSM data for benin" in country_log
+    assert "Wrote" in country_log
     assert str(conda_prefix) in country_log, "Retrieval must use its Conda Python"

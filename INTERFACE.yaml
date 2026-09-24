@@ -7,9 +7,10 @@ pathvars:
     resources:
       default: "<resources>"
       description: >-
-        Raw OSM files are written to osm/out/{country}_{feature}.csv and
-        osm/out/{country}_{feature}.geojson. Clean features and generic
-        network outputs are written below osm/clean and osm/build.
+        Raw OSM files are written to osm/retrieve/{country}_{feature}.json.
+        Clean features are written below osm/clean; generic network outputs
+        below osm/build (buses/lines/transformers as CSV under osm/build/csv
+        and GeoJSON, including substation polygons, under osm/build/geojson).
     results:
       default: "<results>"
       description: location of module result files.

@@ -1,5 +1,6 @@
 {
   "additionalProperties": false,
+  "description": "Top-level grid-builder config.",
   "properties": {
     "countries": {
       "default": [
@@ -14,6 +15,7 @@
     },
     "retrieve": {
       "additionalProperties": false,
+      "description": "Settings for retrieve_osm_pbf.py/retrieve_osm_overpass.py.",
       "properties": {
         "source": {
           "default": "geofabrik",
@@ -24,48 +26,14 @@
           ],
           "type": "string"
         },
-        "primary_name": {
-          "default": "power",
-          "description": "Primary OSM feature to retrieve (e.g., 'power')",
-          "type": "string"
-        },
-        "features": {
-          "default": [
-            "substation",
-            "line",
-            "cable"
-          ],
-          "description": "OSM features to retrieve for each country",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "type": "array"
-        },
         "force_redownload": {
           "default": false,
-          "description": "Force refresh of cached data in earth-osm",
-          "type": "boolean"
-        },
-        "mp": {
-          "const": false,
-          "default": false,
-          "description": "Must be false: earth-osm multiprocessing does not respect Snakemake's CPU allocation",
-          "type": "boolean"
-        },
-        "stream_backend": {
-          "default": true,
-          "description": "Enable streaming backend in earth-osm",
-          "type": "boolean"
-        },
-        "cache_primary": {
-          "default": false,
-          "description": "Enable caching of primary feature data in earth-osm",
+          "description": "Force refresh of cached data",
           "type": "boolean"
         },
         "include_relations": {
-          "default": false,
-          "description": "Additionally retrieve OSM route=power relations from the Overpass API, so clean_osm_data can group their member ways into a single line matching the relation's real-world circuit",
+          "default": true,
+          "description": "Additionally retrieve OSM route=power/power=circuit relations, so clean_osm_data can group their member ways into a single line matching the relation's real-world circuit",
           "type": "boolean"
         },
         "target_date": {
@@ -79,10 +47,53 @@
             }
           ],
           "default": null,
-          "description": "Optional historical date for data retrieval in ISO 8601 datetime format"
+          "description": "Optional historical date for data retrieval in ISO 8601 datetime format. Only honoured for retrieve.source: geofabrik."
+        },
+        "overpass_api": {
+          "additionalProperties": false,
+          "description": "Settings for retrieve_osm_overpass.py's own Overpass API client.",
+          "properties": {
+            "url": {
+              "default": "https://overpass-api.de/api/interpreter",
+              "description": "Overpass API endpoint to query",
+              "type": "string"
+            },
+            "max_tries": {
+              "default": 5,
+              "description": "Maximum number of attempts per query before giving up",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "timeout": {
+              "default": 600,
+              "description": "Per-request timeout in seconds",
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            "user_agent": {
+              "additionalProperties": false,
+              "description": "Identifies this tool to the Overpass API, per its fair-use policy.",
+              "properties": {
+                "project_name": {
+                  "default": "grid-builder",
+                  "description": "Project name sent in the User-Agent header",
+                  "type": "string"
+                },
+                "email": {
+                  "default": "",
+                  "description": "Contact email sent in the User-Agent header",
+                  "type": "string"
+                },
+                "website": {
+                  "default": "https://github.com/pypsa/grid-builder",
+                  "description": "Project URL sent in the User-Agent header",
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
-      },
-      "description": "Configuration for OSM data retrieval using earth-osm"
+      }
     },
     "network": {
       "additionalProperties": false,
@@ -94,20 +105,34 @@
           "exclusiveMinimum": 0,
           "type": "number"
         },
+        "frequency_hz": {
+          "additionalProperties": false,
+          "description": "AC/DC frequency in Hz, used to classify and normalise OSM ``frequency`` tags.",
+          "properties": {
+            "AC": {
+              "default": 50.0,
+              "description": "AC frequency in Hz (50 for most of the world; 60 for the Americas and parts of Asia)",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "DC": {
+              "default": 0.0,
+              "description": "Frequency tag value OSM uses to mark a DC line/converter",
+              "minimum": 0,
+              "type": "number"
+            }
+          }
+        },
         "station_merge_distance_m": {
           "default": 500.0,
           "description": "Distance used to merge nearby substations and line endpoints, in metres",
           "exclusiveMinimum": 0,
           "type": "number"
         },
-        "under_construction": {
-          "default": "remove",
-          "description": "Whether assets tagged as under construction are retained",
-          "enum": [
-            "keep",
-            "remove"
-          ],
-          "type": "string"
+        "remove_under_construction": {
+          "default": true,
+          "description": "Whether assets tagged as under construction are dropped",
+          "type": "boolean"
         },
         "remove_after": {
           "anyOf": [
@@ -119,7 +144,7 @@
               "type": "null"
             }
           ],
-          "default": "2025-12-31",
+          "default": "2026-12-31",
           "description": "Exclude assets with a later planned start date; null disables this filter"
         }
       }
@@ -140,11 +165,65 @@
               }
             ],
             "default": null
+          },
+          "frequency_hz": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "Optional per-country AC/DC override; unset fields fall back to network.frequency_hz.",
+                "properties": {
+                  "AC": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "DC": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         }
       },
       "description": "Country-specific network overrides loaded from config/regions",
       "type": "object"
+    },
+    "crs": {
+      "additionalProperties": false,
+      "description": "Coordinate reference systems used throughout clean_osm_data/build_osm_network.",
+      "properties": {
+        "geo": {
+          "default": "EPSG:4326",
+          "description": "Geographic CRS used to store and exchange coordinates",
+          "type": "string"
+        },
+        "distance": {
+          "default": "EPSG:3035",
+          "description": "Equal-area/equal-distance CRS used for buffering and length calculations; must suit the geographic extent in use (the default, ETRS89-LAEA, covers Europe)",
+          "type": "string"
+        }
+      }
     }
   },
   "title": "ConfigSchema",

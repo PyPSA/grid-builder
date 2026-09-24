@@ -2,21 +2,70 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Helper functions for Snakemake scripts, including mock_snakemake for testing."""
+"""Helper functions shared by workflow/scripts/*.py.
+
+Logging setup, internal data loading, shared geometry constants, and
+mock_snakemake for testing.
+
+Other scripts import this module as ``from scripts._helpers import ...``,
+not ``workflow.scripts._helpers``. That plain form resolves in both places
+these scripts run: under a real
+Snakemake ``script:`` execution, Snakemake puts ``workflow/`` on ``sys.path``
+(via the Snakefile's own ``sys.path.insert(0, workflow.basedir)``, captured
+and propagated into every script's execution preamble); under pytest,
+``pytest.ini``'s ``pythonpath`` setting puts ``workflow/`` on ``sys.path``
+too, alongside the project root that lets test files import
+``workflow.scripts.X``.
+"""
 
 import logging
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
+GEO_CRS = "EPSG:4326"
+BUS_TOL = 500  # metres; default station merge tolerance
+
+
+def configure_logging(log_path: str) -> None:
+    """Send rule and dependency logging to the Snakemake log file."""
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(logging.INFO)
+
+
+def load_internal_yaml(filename: str) -> Any:
+    """Load a YAML file from workflow/internal/, resolved relative to this checkout.
+
+    Uses ``__file__`` rather than ``workflow.source_path()``: this is called
+    from plain executed scripts (via Snakemake's ``script:`` directive),
+    which only get a ``snakemake`` object in scope, not the ``workflow``
+    object that ``source_path()`` needs — that API is only reachable from
+    Snakefile-level rule code. Resolving via ``__file__`` still works
+    correctly when this project is used as a Snakemake submodule, because
+    Snakemake's own ``script:`` resolution already points each script at its
+    real location inside this checkout (the same reasoning ``mock_snakemake``
+    below relies on for ``script_dir``).
+    """
+    path = Path(__file__).resolve().parent.parent / "internal" / filename
+    with open(path) as handle:
+        return yaml.safe_load(handle)
+
 
 def mock_snakemake(
-    rulename,
-    root_dir=None,
-    configfiles=None,
-    submodule_dir="workflow/submodules/pypsa-eur",
-    **wildcards,
-):
+    rulename: str,
+    root_dir: str | Path | None = None,
+    configfiles: list[str] | str | None = None,
+    submodule_dir: str | Path = "workflow/submodules/grid-builder",
+    **wildcards: str,
+) -> Any:
     """Mock a Snakemake object for testing scripts outside of Snakemake.
 
     This function is expected to be executed from the 'scripts'-directory of
@@ -34,8 +83,9 @@ def mock_snakemake(
     configfiles: list, str
         list of configfiles to be used to update the config
     submodule_dir: str, Path
-        in case PyPSA-Eur is used as a submodule, submodule_dir is
-        the path of pypsa-eur relative to the project directory.
+        when this project is itself used as a submodule of another
+        Snakemake workflow, submodule_dir is its conventional path
+        relative to that parent project's directory.
     **wildcards:
         keyword arguments fixing the wildcards. Only necessary if wildcards are
         needed.
@@ -131,7 +181,8 @@ def mock_snakemake(
         wc = wildcards
         job = sm.jobs.Job(rule, dag, wc)
 
-        def make_accessable(*ios):
+        def make_accessable(*ios: list[str]) -> None:
+            """Rewrite each path in each ``ios`` list to an absolute path, in place."""
             for io in ios:
                 for i, _ in enumerate(io):
                     io[i] = os.path.abspath(io[i])

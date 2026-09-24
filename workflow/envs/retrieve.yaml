@@ -5,5 +5,7 @@ channels:
 dependencies:
   - python >=3.12,<3.13
   - earth-osm =3.0.2
+  - osmium-tool >=1.19,<2
   - pyosmium >=4,<5
   - pyproj >=3.7,<4
+  - requests >=2,<3

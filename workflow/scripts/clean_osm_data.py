@@ -5,17 +5,16 @@
 """Clean raw OSM power features into generic high-voltage grid inputs.
 
 The tag-cleaning and topology functions below (``_clean_voltage`` through
-``_create_line``) are ported near-verbatim from PyPSA-Eur's
-``scripts/clean_osm_data.py`` (fix-osm branch): they operate purely on
-pandas/shapely data, so they transfer unchanged. What's adapted is the I/O
-boundary — earth-osm's flattened CSV exports for substations/lines/cables
-(instead of PyPSA-Eur's raw Overpass JSON dumps) and this project's own
-Overpass-only relation retrieval — plus everything downstream of PyPSA
-network construction (line-type capacities, DC links/converters), which is
-out of this project's scope.
+``_create_line``) operate purely on pandas/shapely data, deriving voltage,
+circuits, and frequency from whatever combination of OSM tags is present.
+The importers below them (``_load_elements`` onward) adapt this project's
+own retrieval output — raw Overpass-JSON-shaped ``{"elements": [...]}``
+files, written identically by both ``retrieve_osm_pbf.py``
+(geofabrik/pyosmium) and ``retrieve_osm_overpass.py`` (live Overpass) — into
+the shapes those functions expect. Line-type capacities and DC
+links/converters are out of this project's scope.
 
-Voltage, unlike this project's earlier hand-rolled parser, is kept in raw
-volts as a string throughout cleaning (matching the reference), and is only
+Voltage is kept in raw volts as a string throughout cleaning, and is only
 floored to whole kV at the very end.
 """
 
@@ -28,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from scripts._helpers import BUS_TOL, configure_logging, load_internal_yaml
 from shapely.algorithms.polylabel import polylabel
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
@@ -37,32 +37,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GEO_CRS = "EPSG:4326"
-BUS_TOL = 500  # metres; matches PyPSA-Eur's station merge tolerance
-
-
-def configure_logging(log_path: str) -> None:
-    """Send rule and dependency logging to the Snakemake log file."""
-    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
-    logging.getLogger().addHandler(handler)
-    logging.getLogger().setLevel(logging.INFO)
-
-
-# ---------------------------------------------------------------------------
-# Ported from PyPSA-Eur's scripts/clean_osm_data.py (fix-osm branch).
-# ---------------------------------------------------------------------------
+_TAG_CORRECTIONS: dict[str, list[dict[str, Any]]] = load_internal_yaml(
+    "tag_corrections.yaml"
+)
 
 
 def _create_linestring(row: pd.Series) -> LineString:
+    """Build a LineString from a raw OSM geometry list of ``{lon, lat}`` points."""
     coords = [(coord["lon"], coord["lat"]) for coord in row["geometry"]]
     return LineString(coords)
 
 
 def _create_polygon(row: pd.Series) -> Polygon:
+    """Build a closed Polygon from a raw OSM geometry list of ``{lon, lat}`` points."""
     point_coords = [(coord["lon"], coord["lat"]) for coord in row["geometry"]]
     if point_coords[0] != point_coords[-1]:
         point_coords.append(point_coords[0])
@@ -74,112 +61,57 @@ def _to_str(column: pd.Series) -> pd.Series:
     return column.fillna("").astype(str)
 
 
-def _clean_voltage(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column)
-        .str.lower()
-        .str.replace("400/220/110 kV'", "400000;220000;110000")
-        .str.replace("400/220/110/20_kv", "400000;220000;110000;20000")
-        .str.replace("2x25000", "25000;25000")
-        .str.replace("é", ";")
-        .str.replace("kvv/", "")
-        .str.replace("11000l400", "11000")
-    )
-    column = (
-        column.str.lower()
-        .str.replace("(temp 150000)", "")
-        .str.replace("low", "1000")
-        .str.replace("minor", "1000")
-        .str.replace("medium", "33000")
-        .str.replace("med", "33000")
-        .str.replace("m", "33000")
-        .str.replace("high", "150000")
-        .str.replace("23000-109000", "109000")
-        .str.replace("380000>220000", "380000;220000")
-        .str.replace(":", ";")
-        .str.replace("<", ";")
-        .str.replace(",", ";")
-        .str.replace("kv", "000")
-        .str.replace("kva", "000")
-        .str.replace("/", ";")
-    )
-    column = column.str.replace(r"[^0-9;]", "", regex=True)
+def _apply_corrections(column: pd.Series, steps: list[dict[str, Any]]) -> pd.Series:
+    """Replay an ordered list of literal replacements/lowercasing from tag_corrections.yaml."""
+    for step in steps:
+        if "lower" in step:
+            column = column.str.lower()
+        else:
+            pattern, replacement = step["replace"]
+            column = column.str.replace(pattern, replacement, regex=False)
     return column
+
+
+def _clean_voltage(column: pd.Series) -> pd.Series:
+    """Normalise a raw ``voltage`` tag column to semicolon-separated volts."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["voltage"])
+    return column.str.replace(r"[^0-9;]", "", regex=True)
 
 
 def _clean_circuits(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column)
-        .str.replace("partial", "")
-        .str.replace("1operator=RTE operator:wikidata=Q2178795", "")
-        .str.lower()
-        .str.replace("1,5", "3")
-        .str.replace("1/3", "1")
-    )
-    column = column.str.replace(r"[^0-9;]", "", regex=True)
-    return column
+    """Normalise a raw ``circuits`` tag column to semicolon-separated integers."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["circuits"])
+    return column.str.replace(r"[^0-9;]", "", regex=True)
 
 
 def _clean_cables(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column).str.lower().str.replace("1/3", "1").str.replace("3x2;2", "3")
-    )
-    column = column.str.replace(r"[^0-9;]", "", regex=True)
-    return column
+    """Normalise a raw ``cables`` tag column to semicolon-separated integers."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["cables"])
+    return column.str.replace(r"[^0-9;]", "", regex=True)
 
 
 def _clean_wires(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column)
-        .str.lower()
-        .str.replace("?", "")
-        .str.replace("trzyprzewodowe", "3")
-        .str.replace("pojedyńcze", "1")
-        .str.replace("single", "1")
-        .str.replace("double", "2")
-        .str.replace("triple", "3")
-        .str.replace("quad", "4")
-        .str.replace("fivefold", "5")
-        .str.replace("yes", "3")
-        .str.replace("1/3", "1")
-        .str.replace("3x2;2", "3")
-        .str.replace("_", "")
-    )
-    column = column.str.replace(r"[^0-9;]", "", regex=True)
-    return column
+    """Normalise a raw ``wires`` tag column to semicolon-separated integers."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["wires"])
+    return column.str.replace(r"[^0-9;]", "", regex=True)
 
 
 def _check_voltage(voltage: str, list_voltages: Any) -> bool:
+    """True if any of ``voltage``'s semicolon-separated values is in ``list_voltages``."""
     voltages = voltage.split(";")
     return any(v in list_voltages for v in voltages)
 
 
 def _clean_frequency(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column)
-        .str.lower()
-        .str.replace("16.67", "16.7")
-        .str.replace("16,7", "16.7")
-        .str.replace("?", "")
-        .str.replace("hz", "")
-        .str.replace(" ", "")
-    )
-    column = column.str.replace(r"[^0-9;.]", "", regex=True)
-    return column
+    """Normalise a raw ``frequency`` tag column to semicolon-separated Hz values."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["frequency"])
+    return column.str.replace(r"[^0-9;.]", "", regex=True)
 
 
 def _clean_date(column: pd.Series) -> pd.Series:
-    column = (
-        _to_str(column)
-        .str.lower()
-        .str.replace("unknown", "", regex=False)
-        .str.replace("approx", "", regex=False)
-        .str.replace("c.", "", regex=False)
-        .str.replace("circa", "", regex=False)
-        .str.replace("about", "", regex=False)
-        .str.replace("?", "", regex=False)
-        .str.strip()
-    )
+    """Parse a raw ``start_date`` tag column to datetimes, coercing invalid values to NaT."""
+    column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["date"])
+    column = column.str.strip()
     column = column.str.replace(r"[^0-9-]", "", regex=True)
     column = column.mask(column == "")
     return pd.to_datetime(column, errors="coerce", format="mixed")
@@ -212,6 +144,7 @@ def _split_cells(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFram
 
 
 def _distribute_to_circuits(row: pd.Series) -> str:
+    """Split a row's circuits (or cables/3) evenly across its ``split_elements``."""
     circuits: float
     if row["circuits"] != "":
         circuits = int(row["circuits"])
@@ -273,8 +206,14 @@ def _filter_by_voltage(
 
 
 def _clean_substations(
-    df_substations: pd.DataFrame, list_voltages: Any
+    df_substations: pd.DataFrame, list_voltages: Any, dc_hz: str
 ) -> pd.DataFrame:
+    """Split multi-voltage substation rows and normalise each split's frequency.
+
+    ``df_substations`` must already carry a per-row ``_ac_hz`` column (each
+    row's own regional AC frequency); ``dc_hz`` is the single global DC
+    marker value (see ``_region_ac_hz``).
+    """
     df_substations = df_substations.copy()
     df_substations = _split_cells(df_substations)
 
@@ -300,15 +239,24 @@ def _clean_substations(
     )
 
     df_substations = _split_cells(df_substations, cols=["frequency"])
-    bool_invalid_frequency = df_substations["frequency"].apply(
-        lambda x: x not in ["50", "0"]
+    bool_invalid_frequency = df_substations.apply(
+        lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
     )
-    df_substations.loc[bool_invalid_frequency, "frequency"] = "50"
+    df_substations.loc[bool_invalid_frequency, "frequency"] = df_substations.loc[
+        bool_invalid_frequency, "_ac_hz"
+    ]
     return df_substations
 
 
-def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
-    """Clean lines/cables heuristically, deriving circuits from whatever tags exist."""
+def _clean_lines(
+    df_lines: pd.DataFrame, list_voltages: Any, dc_hz: str
+) -> pd.DataFrame:
+    """Clean lines/cables heuristically, deriving circuits from whatever tags exist.
+
+    ``df_lines`` must already carry a per-row ``_ac_hz`` column (each row's
+    own regional AC frequency); ``dc_hz`` is the single global DC marker
+    value (see ``_region_ac_hz``).
+    """
     df_lines = df_lines.copy()
     df_lines["cleaned"] = False
     df_lines["voltage_original"] = df_lines["voltage"]
@@ -320,16 +268,17 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
     )
     df_lines = df_lines[bool_voltages]
 
-    bool_ac = df_lines["frequency"] != "0"
+    bool_ac = df_lines["frequency"] != dc_hz
     bool_dc = ~bool_ac
-    valid_frequency = ["50", "0"]
-    bool_invalid_frequency = df_lines["frequency"].apply(
-        lambda x: x not in valid_frequency
+    bool_invalid_frequency = df_lines.apply(
+        lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
     )
 
     bool_noinfo = (df_lines["cables"] == "") & (df_lines["circuits"] == "")
     df_lines.loc[bool_noinfo, "circuits"] = "1"
-    df_lines.loc[bool_noinfo & bool_invalid_frequency, "frequency"] = "50"
+    df_lines.loc[bool_noinfo & bool_invalid_frequency, "frequency"] = df_lines.loc[
+        bool_noinfo & bool_invalid_frequency, "_ac_hz"
+    ]
     df_lines.loc[bool_noinfo, "cleaned"] = True
 
     bool_cables_ac = (
@@ -344,7 +293,7 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
     df_lines.loc[bool_cables_ac, "circuits"] = df_lines.loc[
         bool_cables_ac, "cables"
     ].apply(lambda x: str(int(max(1, np.floor_divide(int(x), 3)))))
-    df_lines.loc[bool_cables_ac, "frequency"] = "50"
+    df_lines.loc[bool_cables_ac, "frequency"] = df_lines.loc[bool_cables_ac, "_ac_hz"]
     df_lines.loc[bool_cables_ac, "cleaned"] = True
 
     bool_cables_dc = (
@@ -359,7 +308,7 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
     df_lines.loc[bool_cables_dc, "circuits"] = df_lines.loc[
         bool_cables_dc, "cables"
     ].apply(lambda x: str(int(max(1, np.floor_divide(int(x), 2)))))
-    df_lines.loc[bool_cables_dc, "frequency"] = "0"
+    df_lines.loc[bool_cables_dc, "frequency"] = dc_hz
     df_lines.loc[bool_cables_dc, "cleaned"] = True
 
     bool_lines = (
@@ -369,8 +318,10 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
         & (df_lines["circuits"].apply(lambda x: len(x.split(";")) == 1))
         & (~df_lines["cleaned"])
     )
-    df_lines.loc[bool_lines & bool_ac, "frequency"] = "50"
-    df_lines.loc[bool_lines & bool_dc, "frequency"] = "0"
+    df_lines.loc[bool_lines & bool_ac, "frequency"] = df_lines.loc[
+        bool_lines & bool_ac, "_ac_hz"
+    ]
+    df_lines.loc[bool_lines & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_lines, "cleaned"] = True
 
     bool_cables = (
@@ -382,8 +333,10 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
     df_lines.loc[bool_cables, "circuits"] = df_lines[bool_cables].apply(
         _distribute_to_circuits, axis=1
     )
-    df_lines.loc[bool_cables & bool_ac, "frequency"] = "50"
-    df_lines.loc[bool_cables & bool_dc, "frequency"] = "0"
+    df_lines.loc[bool_cables & bool_ac, "frequency"] = df_lines.loc[
+        bool_cables & bool_ac, "_ac_hz"
+    ]
+    df_lines.loc[bool_cables & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_cables, "cleaned"] = True
 
     has_multiple_circuits = df_lines["circuits"].apply(lambda x: len(x.split(";")) > 1)
@@ -396,8 +349,10 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
         lambda row: str(row["circuits"].split(";")[int(row["id"].split("-")[-1]) - 1]),
         axis=1,
     )
-    df_lines.loc[bool_cables & bool_ac, "frequency"] = "50"
-    df_lines.loc[bool_cables & bool_dc, "frequency"] = "0"
+    df_lines.loc[bool_cables & bool_ac, "frequency"] = df_lines.loc[
+        bool_cables & bool_ac, "_ac_hz"
+    ]
+    df_lines.loc[bool_cables & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_cables, "cleaned"] = True
 
     has_multiple_cables = df_lines["cables"].apply(lambda x: len(x.split(";")) > 1)
@@ -417,20 +372,25 @@ def _clean_lines(df_lines: pd.DataFrame, list_voltages: Any) -> pd.DataFrame:
         ),
         axis=1,
     )
-    df_lines.loc[bool_cables & bool_ac, "frequency"] = "50"
-    df_lines.loc[bool_cables & bool_dc, "frequency"] = "0"
+    df_lines.loc[bool_cables & bool_ac, "frequency"] = df_lines.loc[
+        bool_cables & bool_ac, "_ac_hz"
+    ]
+    df_lines.loc[bool_cables & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_cables, "cleaned"] = True
 
     bool_leftover = ~df_lines["cleaned"]
     df_lines.loc[bool_leftover, "circuits"] = "1"
-    df_lines.loc[bool_leftover & bool_ac, "frequency"] = "50"
-    df_lines.loc[bool_leftover & bool_dc, "frequency"] = "0"
+    df_lines.loc[bool_leftover & bool_ac, "frequency"] = df_lines.loc[
+        bool_leftover & bool_ac, "_ac_hz"
+    ]
+    df_lines.loc[bool_leftover & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_leftover, "cleaned"] = True
 
     return df_lines
 
 
 def _create_substations_geometry(df_substations: pd.DataFrame) -> pd.DataFrame:
+    """Copy each substation's Polygon into a dedicated ``polygon`` column."""
     df_substations = df_substations.copy()
     df_substations["polygon"] = df_substations["geometry"]
     return df_substations
@@ -439,6 +399,7 @@ def _create_substations_geometry(df_substations: pd.DataFrame) -> pd.DataFrame:
 def _create_substations_poi(
     df_substations: pd.DataFrame, tol: float = BUS_TOL / 2
 ) -> pd.DataFrame:
+    """Replace ``geometry`` with each polygon's Pole of Inaccessibility, keeping ``polygon``."""
     df_substations = df_substations.copy()
     df_substations["geometry"] = df_substations["polygon"].apply(
         lambda polygon: polylabel(polygon, tol)
@@ -475,6 +436,7 @@ def _create_lines_geometry(df_lines: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_bus_poi_to_line(linestring: LineString, point: Point) -> LineString:
+    """Extend ``linestring`` with a stub segment to ``point``, snapped to its nearer end."""
     start = linestring.coords[0]
     end = linestring.coords[-1]
     dist_to_start = point.distance(Point(start))
@@ -486,6 +448,7 @@ def _add_bus_poi_to_line(linestring: LineString, point: Point) -> LineString:
 
 
 def _finalise_substations(df_substations: pd.DataFrame) -> gpd.GeoDataFrame:
+    """Rename to the output schema, add ``contains``, and cast ``voltage`` to int."""
     df_substations = df_substations.rename(columns={"id": "bus_id"})
     if df_substations.empty:
         df_substations["contains"] = pd.Series(dtype=object)
@@ -544,6 +507,7 @@ def _aggregate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
 
 
 def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
+    """Rename to the output schema, add ``underground``/``contains``, and cast dtypes."""
     df_lines = df_lines.rename(columns={"id": "line_id", "power": "tag_type"})
     df_lines["underground"] = df_lines["tag_type"] == "cable"
     df_lines["contains"] = df_lines["line_id"].apply(lambda x: [x.split("-")[0]])
@@ -584,7 +548,7 @@ def _remove_lines_within_substations(
     return gdf_lines[~gdf_lines["line_id"].isin(contained)]
 
 
-def _merge_touching_polygons(df: pd.DataFrame, crs: str = GEO_CRS) -> gpd.GeoDataFrame:
+def _merge_touching_polygons(df: pd.DataFrame, crs: str) -> gpd.GeoDataFrame:
     """Union adjacent/overlapping substation polygons before any bus is placed."""
     gdf = gpd.GeoDataFrame(df, geometry="polygon", crs=crs)
     invalid = gdf[~gdf.is_valid]
@@ -612,6 +576,7 @@ def _merge_touching_polygons(df: pd.DataFrame, crs: str = GEO_CRS) -> gpd.GeoDat
 def _get_polygons_at_endpoints(
     linestring: LineString, polygon_dict: dict[str, Any]
 ) -> dict[str, Any]:
+    """Keep only the polygons from ``polygon_dict`` that contain a line endpoint."""
     start_point = Point(linestring.coords[0])
     end_point = Point(linestring.coords[-1])
     return {
@@ -624,6 +589,7 @@ def _get_polygons_at_endpoints(
 def _add_endpoints_to_line(
     linestring: LineString, polygon_dict: dict[str, Any], tol: float = BUS_TOL / 2
 ) -> LineString:
+    """Trim ``linestring`` out of the touched polygons and stub it to each Pole of Inaccessibility."""
     if not polygon_dict:
         return linestring
     polygon_pois = {
@@ -696,6 +662,7 @@ def _extend_lines_to_substations(
 
 
 def _check_if_ways_in_multi(members: list[str], longer_list: Any) -> bool:
+    """True if any of ``members`` also belongs to a relation whose line came out multi-part."""
     return any(member in longer_list for member in members)
 
 
@@ -711,63 +678,6 @@ def _create_line(row: pd.Series) -> tuple[Any, list[str]]:
     line = linemerge(df[~closed_geom]["geometry"].values.tolist())
     members = df[~closed_geom]["ways"].values.tolist()
     return line, members
-
-
-# ---------------------------------------------------------------------------
-# Adapters: earth-osm CSV exports and our Overpass relation JSON dumps ->
-# the DataFrame shapes the ported functions above expect.
-# ---------------------------------------------------------------------------
-
-
-def _present(value: Any) -> bool:
-    return (
-        value is not None
-        and not (isinstance(value, float) and np.isnan(value))
-        and value != ""
-    )
-
-
-def _lonlat_to_geometry(value: Any) -> list[dict[str, float]]:
-    """Convert earth-osm's ``[[lon, lat], ...]`` column to Overpass-style coord dicts."""
-    if not _present(value):
-        return []
-    pairs = json.loads(value) if isinstance(value, str) else value
-    return [
-        {"lon": float(pair[0]), "lat": float(pair[1])}
-        for pair in pairs
-        if len(pair) >= 2
-    ]
-
-
-def _normalise_tag(value: Any) -> Any:
-    """Undo pandas inferring a numeric-looking tag column (e.g. frequency) as float.
-
-    OSM tags are strings (``frequency=0``, not ``0.0``); reference's cleaning
-    functions compare against exact string literals like ``"0"`` and ``"50"``,
-    so a whole-valued float must lose its ``.0`` or those comparisons silently
-    fail and DC lines (frequency=0) get treated as AC.
-    """
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return value
-
-
-def _tag_value(row: dict[str, Any], other_tags: dict[str, str], key: str) -> Any:
-    column = f"tags.{key}"
-    if column in row and _present(row[column]):
-        return _normalise_tag(row[column])
-    return _normalise_tag(other_tags.get(key))
-
-
-def _other_tags(row: pd.Series) -> dict[str, str]:
-    value = row.get("other_tags")
-    if not _present(value):
-        return {}
-    try:
-        parsed = json.loads(value) if isinstance(value, str) else value
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
 
 
 _LINE_TAG_COLUMNS = [
@@ -790,123 +700,186 @@ _SUBSTATION_TAG_COLUMNS = [
     "construction:power",
     "start_date",
 ]
+_RELATION_TAG_COLUMNS = [
+    "power",
+    "circuits",
+    "cables",
+    "frequency",
+    "voltage",
+    "construction",
+    "construction:power",
+    "start_date",
+]
 
 
-def _feature_of(path: str) -> str:
-    """earth-osm names raw exports ``{country}_{feature}.csv``; recover the feature."""
-    return Path(path).stem.split("_", maxsplit=1)[1]
+def _load_elements(paths: list[str], element_type: str) -> pd.DataFrame:
+    """Load our own raw Overpass-JSON-shaped retrieval output for one element type.
 
-
-def _import_lines_and_cables(paths: list[str]) -> pd.DataFrame:
-    """Read earth-osm line/cable CSVs into the shape ``_clean_lines`` expects."""
+    Both retrieve_osm_pbf.py (pyosmium reading a local PBF) and
+    retrieve_osm_overpass.py (a live Overpass query) write this exact shape
+    — ``{"elements": [...]}``, tags as a dict, geometry as a list of
+    ``{"lon", "lat"}`` points — so this loader (and everything downstream of
+    it) doesn't need to know or care which source produced the file.
+    """
     frames = []
     for path in paths:
-        if _feature_of(path) not in ("line", "cable"):
-            continue
-        frame = pd.read_csv(path)
-        if frame.empty:
-            continue
-        country = Path(path).stem.split("_", maxsplit=1)[0]
-        other_tags = frame.apply(_other_tags, axis=1)
-        record = pd.DataFrame({"id": "way/" + frame["id"].astype(int).astype(str)})
-        record["country"] = country
-        record["geometry"] = frame["lonlat"].apply(_lonlat_to_geometry)
-        for column in _LINE_TAG_COLUMNS:
-            record[column] = [
-                _tag_value(row, tags, column)
-                for row, tags in zip(frame.to_dict("records"), other_tags, strict=True)
-            ]
-            record[column] = record[column].where(record[column].notna(), None)
-        record = record[record["geometry"].apply(len) >= 2]
-        frames.append(record)
-    if not frames:
-        return pd.DataFrame(columns=["id", "country", "geometry", *_LINE_TAG_COLUMNS])
-    return pd.concat(frames, ignore_index=True)
-
-
-def _import_substations(paths: list[str]) -> pd.DataFrame:
-    """Read earth-osm substation CSVs (nodes and ways) into ``_clean_substations`` shape."""
-    frames = []
-    for path in paths:
-        if _feature_of(path) != "substation":
-            continue
-        frame = pd.read_csv(path)
-        if frame.empty:
-            continue
-        country = Path(path).stem.split("_", maxsplit=1)[0]
-        other_tags = frame.apply(_other_tags, axis=1)
-        element_type = frame["Type"].map({"node": "node", "area": "way", "way": "way"})
-        record = pd.DataFrame(
-            {"id": element_type + "/" + frame["id"].astype(int).astype(str)}
-        )
-        record["country"] = country
-        record["_is_node"] = frame["Type"] == "node"
-        record["_coords"] = frame["lonlat"].apply(_lonlat_to_geometry)
-        for column in _SUBSTATION_TAG_COLUMNS:
-            record[column] = [
-                _tag_value(row, tags, column)
-                for row, tags in zip(frame.to_dict("records"), other_tags, strict=True)
-            ]
-            record[column] = record[column].where(record[column].notna(), None)
-        record = record[record["_coords"].apply(len) >= 1]
-        frames.append(record)
-    if not frames:
-        return pd.DataFrame(
-            columns=["id", "country", "_is_node", "_coords", *_SUBSTATION_TAG_COLUMNS]
-        )
-    return pd.concat(frames, ignore_index=True)
-
-
-def _import_routes_relation(paths: list[str]) -> pd.DataFrame:
-    """Read our raw Overpass ``out body geom;`` relation dumps into ``_create_line`` shape."""
-    columns = [
-        "id",
-        "members",
-        "country",
-        "power",
-        "circuits",
-        "cables",
-        "frequency",
-        "voltage",
-        "construction",
-        "construction:power",
-        "start_date",
-    ]
-    frames = []
-    for path in paths:
-        if not Path(path).exists() or Path(path).stat().st_size < 50:
+        if not Path(path).exists() or Path(path).stat().st_size < 20:
             continue
         with open(path) as handle:
             payload = json.load(handle)
         country = Path(path).stem.split("_", maxsplit=1)[0]
         elements = [
-            e for e in payload.get("elements", []) if e.get("type") == "relation"
+            e for e in payload.get("elements", []) if e.get("type") == element_type
         ]
         if not elements:
             continue
         frame = pd.DataFrame(elements)
-        frame["id"] = "relation/" + frame["id"].astype(str)
+        frame["id"] = f"{element_type}/" + frame["id"].astype(str)
         frame["country"] = country
-        tags = pd.json_normalize(frame["tags"]).map(
-            lambda x: str(x) if pd.notnull(x) else x
-        )
-        for column in columns:
-            if (
-                column not in ("id", "members", "country")
-                and column not in tags.columns
-            ):
-                tags[column] = pd.NA
-        frame = pd.concat(
-            [
-                frame[["id", "members", "country"]],
-                tags[[c for c in columns if c not in ("id", "members", "country")]],
-            ],
-            axis="columns",
-        )
         frames.append(frame)
     if not frames:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=["id", "country", "tags", "geometry", "members"])
     return pd.concat(frames, ignore_index=True)
+
+
+def _flatten_tags(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Flatten a ``tags`` dict column into top-level string columns.
+
+    Uses ``pd.json_normalize`` after loading raw Overpass-shaped JSON.
+    """
+    if frame.empty:
+        return frame.assign(**{column: pd.Series(dtype=object) for column in columns})
+    tags = pd.json_normalize(frame["tags"]).map(
+        lambda x: str(x) if pd.notnull(x) else x
+    )
+    for column in columns:
+        if column not in tags.columns:
+            tags[column] = pd.NA
+    tags = tags.loc[:, columns]
+    return pd.concat([frame.drop(columns=["tags"]), tags], axis="columns")
+
+
+def _import_lines_and_cables(
+    line_paths: list[str], cable_paths: list[str]
+) -> pd.DataFrame:
+    """Read lines_way/cables_way JSON into the shape ``_clean_lines`` expects."""
+    frame = pd.concat(
+        [_load_elements(line_paths, "way"), _load_elements(cable_paths, "way")],
+        ignore_index=True,
+    )
+    frame = _flatten_tags(frame, _LINE_TAG_COLUMNS)
+    if frame.empty:
+        return frame
+    frame = frame[
+        frame["geometry"].apply(lambda g: isinstance(g, list) and len(g) >= 2)
+    ]
+    return frame.reset_index(drop=True)
+
+
+def _import_substation_relations(paths: list[str]) -> pd.DataFrame:
+    """Build one polygon per substation relation from its non-node members.
+
+    Excludes members with an empty/"incoming_line"/"substation"/"inner" role
+    (the actual boundary is only the "outer" ring), linemerges the rest, and
+    takes the convex hull as the substation's polygon.
+    """
+    df_relations = _load_elements(paths, "relation")
+    if df_relations.empty:
+        return df_relations
+
+    member_frames = []
+    for _, row in df_relations.iterrows():
+        members = pd.json_normalize(row["members"])
+        for column in ("type", "ref", "role", "geometry"):
+            if column not in members.columns:
+                members[column] = pd.NA
+        members = members.loc[:, ["type", "ref", "role", "geometry"]]
+        members["id"] = row["id"]
+        members = members[members["type"] != "node"]
+        members = members.dropna(subset=["geometry"])
+        members = members[
+            ~members["role"].isin(["", "incoming_line", "substation", "inner"])
+        ]
+        member_frames.append(members)
+
+    members_all = (
+        pd.concat(member_frames, ignore_index=True) if member_frames else pd.DataFrame()
+    )
+    if members_all.empty:
+        return df_relations.iloc[0:0]
+
+    members_all["linestring"] = members_all.apply(_create_linestring, axis=1)
+    grouped = (
+        members_all.groupby("id")["linestring"]
+        .apply(lambda group: linemerge(group.tolist()))
+        .reset_index()
+    )
+    grouped["geometry"] = grouped["linestring"].apply(lambda line: line.convex_hull)
+
+    # Raw relation elements have no top-level "geometry" of their own (only
+    # members do), so this join adds it fresh rather than replacing one.
+    df_relations = df_relations.join(
+        grouped.set_index("id")[["geometry"]], on="id", how="left"
+    )
+    df_relations = df_relations.drop(columns=["members"])
+    return df_relations.dropna(subset=["geometry"]).reset_index(drop=True)
+
+
+def _import_routes_relation(paths: list[str]) -> pd.DataFrame:
+    """Read routes_relation JSON into the shape ``_create_line`` expects.
+
+    Unlike substation relations, a route relation's ``members`` column is
+    kept as-is (not converted to a polygon) — ``_create_line`` merges the
+    member ways' own geometry into the relation's line.
+    """
+    frame = _load_elements(paths, "relation")
+    return _flatten_tags(frame, _RELATION_TAG_COLUMNS)
+
+
+def _import_substations(
+    way_paths: list[str], node_paths: list[str], relation_paths: list[str]
+) -> pd.DataFrame:
+    """Read substations_way/node/relation JSON into ``_clean_substations`` shape.
+
+    Converts each row's raw geometry to its final Shapely type here (Polygon
+    for way/relation, Point for node), so the caller only ever needs to
+    distinguish "point" from "polygon-shaped", not which of the three raw
+    element types produced it. The distinction travels as an ``is_node``
+    column (not a separately-returned mask) specifically so it survives
+    ``_split_cells``'s explode() and ``_filter_by_voltage``'s row filtering
+    downstream — those reindex/duplicate rows, which would silently break a
+    same-length-as-the-original-frame side channel. Nodes come from the
+    geofabrik/pyosmium retrieval path, or from this project's own overpass
+    ``substations_node`` query, added for parity between the two
+    retrieve.source options.
+    """
+    df_way = _load_elements(way_paths, "way")
+    df_way = df_way[
+        df_way["geometry"].apply(lambda g: isinstance(g, list) and len(g) >= 1)
+    ]
+    df_way = _flatten_tags(df_way, _SUBSTATION_TAG_COLUMNS)
+    if not df_way.empty:
+        df_way["geometry"] = df_way["geometry"].apply(
+            lambda coords: _create_polygon({"geometry": coords})
+        )
+
+    df_node = _load_elements(node_paths, "node")
+    df_node = df_node[
+        df_node["geometry"].apply(lambda g: isinstance(g, list) and len(g) >= 1)
+    ]
+    df_node = _flatten_tags(df_node, _SUBSTATION_TAG_COLUMNS)
+    if not df_node.empty:
+        df_node["geometry"] = df_node["geometry"].apply(
+            lambda coords: Point(coords[0]["lon"], coords[0]["lat"])
+        )
+
+    df_relation = _import_substation_relations(relation_paths)
+    df_relation = _flatten_tags(df_relation, _SUBSTATION_TAG_COLUMNS)
+
+    df_way["is_node"] = False
+    df_node["is_node"] = True
+    df_relation["is_node"] = False
+    return pd.concat([df_way, df_node, df_relation], ignore_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -917,24 +890,57 @@ def _import_routes_relation(paths: list[str]) -> pd.DataFrame:
 def _region_min_voltage(
     country: str, network: dict[str, Any], regions: dict[str, Any]
 ) -> float:
+    """Minimum AC voltage [V] for ``country``: its regional override, else the network default."""
     override = regions.get(country, {}).get("minimum_voltage_kv")
     kv = override if override is not None else network["minimum_voltage_kv"]
     return float(kv) * 1000  # kV -> V
 
 
+def _format_hz(value: float) -> str:
+    """Render a Hz value the way OSM tags whole numbers: "50", not "50.0"."""
+    return str(int(value)) if value == int(value) else str(value)
+
+
+def _region_ac_hz(
+    country: str, network: dict[str, Any], regions: dict[str, Any]
+) -> str:
+    """AC frequency tag value for ``country``: its regional override, else the network default.
+
+    DC has no equivalent per-country override: OSM always tags DC as
+    ``frequency=0`` worldwide, so unlike AC (50 Hz vs 60 Hz by continent)
+    it isn't something a region should need to change.
+    """
+    frequency_override = regions.get(country, {}).get("frequency_hz") or {}
+    override = frequency_override.get("AC")
+    hz = override if override is not None else network["frequency_hz"]["AC"]
+    return _format_hz(hz)
+
+
 def clean_osm_data(
-    paths: list[str],
+    inputs: dict[str, list[str]],
     network: dict[str, Any],
     regions: dict[str, Any],
-    relation_paths: list[str] | None = None,
+    geo_crs: str,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Return clean substation buses, substation polygons, and AC lines/cables."""
-    crs = GEO_CRS
+    """Return clean substation buses, substation polygons, and AC lines/cables.
+
+    ``inputs`` maps feature name (``lines_way``, ``cables_way``,
+    ``substations_way``, ``substations_node``, ``substations_relation``,
+    ``routes_relation``) to the list of per-country JSON files retrieved for
+    it. A feature with no paths (e.g. ``routes_relation`` when
+    ``include_relations`` is off) is simply skipped.
+    """
+    crs = geo_crs
     min_voltage_ac = network["minimum_voltage_kv"] * 1000  # V
+    dc_hz = _format_hz(network["frequency_hz"]["DC"])
 
     # --- Substations -------------------------------------------------
     logger.info("Importing substations.")
-    df_substations = _import_substations(paths)
+    df_substations = _import_substations(
+        inputs.get("substations_way", []),
+        inputs.get("substations_node", []),
+        inputs.get("substations_relation", []),
+    )
     if df_substations.empty:
         empty_buses = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
         empty_polygons = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
@@ -951,7 +957,10 @@ def clean_osm_data(
             df_substations, min_voltage=min_voltage_ac
         )
         df_substations["frequency"] = _clean_frequency(df_substations["frequency"])
-        df_substations = _clean_substations(df_substations, list_voltages)
+        df_substations["_ac_hz"] = df_substations["country"].map(
+            lambda c: _region_ac_hz(c, network, regions)
+        )
+        df_substations = _clean_substations(df_substations, list_voltages, dc_hz)
 
         # Regional per-country minimum voltage override.
         row_min = df_substations["country"].map(
@@ -961,28 +970,22 @@ def clean_osm_data(
             df_substations["voltage"].astype(int) >= row_min
         ]
 
-        # earth-osm also retrieves plain-node substations (no mapped extent),
-        # which PyPSA-Eur's way/relation-only Overpass retrieval never has.
-        # Nodes skip the polygon-only pipeline (touching-polygon merge, PoI,
-        # line-snapping) and keep their point as-is; ways go through it
-        # unchanged.
-        df_way = df_substations[~df_substations["_is_node"]].copy()
-        df_node = df_substations[df_substations["_is_node"]].copy()
+        # Nodes (earth-osm/Geofabrik-only, or our own overpass addition) skip
+        # the polygon-only pipeline (touching-polygon merge, PoI, line-
+        # snapping) and keep their point as-is; way/relation-derived
+        # substations already carry a Polygon (see _import_substations) and
+        # go through it unchanged.
+        df_way = df_substations[~df_substations["is_node"]].copy()
+        df_node = df_substations[df_substations["is_node"]].copy()
 
         if not df_way.empty:
-            df_way["geometry"] = df_way["_coords"].apply(
-                lambda coords: _create_polygon({"geometry": coords})
-            )
-            df_way = df_way.drop(columns=["_is_node", "_coords"])
+            df_way = df_way.drop(columns=["is_node"])
             df_way = _create_substations_geometry(df_way)
             df_way = _merge_touching_polygons(df_way, crs=crs)
             df_way = _create_substations_poi(df_way)
 
         if not df_node.empty:
-            df_node["geometry"] = df_node["_coords"].apply(
-                lambda coords: Point(coords[0]["lon"], coords[0]["lat"])
-            )
-            df_node = df_node.drop(columns=["_is_node", "_coords"])
+            df_node = df_node.drop(columns=["is_node"])
             df_node["polygon"] = None
 
         df_substations = pd.concat([df_way, df_node], ignore_index=True)
@@ -1004,9 +1007,10 @@ def clean_osm_data(
     # --- AC lines/cables via relations --------------------------------
     lines_frames = []
     ways_to_replace: set[str] = set()
-    if relation_paths:
+    route_paths = inputs.get("routes_relation", [])
+    if route_paths:
         logger.info("Importing power route relations.")
-        df_relation = _import_routes_relation(relation_paths)
+        df_relation = _import_routes_relation(route_paths)
         if not df_relation.empty:
             df_relation = _drop_duplicate_lines(df_relation)
             df_relation["under_construction"] = (
@@ -1021,11 +1025,14 @@ def clean_osm_data(
             )
             if not df_relation.empty:
                 df_relation["frequency"] = _clean_frequency(df_relation["frequency"])
-                df_relation = df_relation[df_relation["frequency"] != "0"]
-                df_relation["frequency"] = "50"
+                df_relation = df_relation[df_relation["frequency"] != dc_hz]
+                df_relation["_ac_hz"] = df_relation["country"].map(
+                    lambda c: _region_ac_hz(c, network, regions)
+                )
+                df_relation["frequency"] = df_relation["_ac_hz"]
                 df_relation["circuits"] = _clean_circuits(df_relation["circuits"])
                 df_relation["cables"] = _clean_cables(df_relation["cables"])
-                df_relation = _clean_lines(df_relation, list_voltages)
+                df_relation = _clean_lines(df_relation, list_voltages, dc_hz)
                 df_relation = df_relation.drop(
                     columns=[
                         "voltage_original",
@@ -1081,7 +1088,9 @@ def clean_osm_data(
 
     # --- AC lines/cables via individual ways ---------------------------
     logger.info("Importing lines and cables.")
-    df_lines = _import_lines_and_cables(paths)
+    df_lines = _import_lines_and_cables(
+        inputs.get("lines_way", []), inputs.get("cables_way", [])
+    )
     if not df_lines.empty:
         df_lines = _drop_duplicate_lines(df_lines)
         len_before = len(df_lines)
@@ -1108,10 +1117,13 @@ def clean_osm_data(
         df_lines["cables"] = _clean_cables(df_lines["cables"])
         df_lines["frequency"] = _clean_frequency(df_lines["frequency"])
         df_lines["wires"] = _clean_wires(df_lines["wires"])
-        df_lines = _clean_lines(df_lines, list_voltages)
+        df_lines["_ac_hz"] = df_lines["country"].map(
+            lambda c: _region_ac_hz(c, network, regions)
+        )
+        df_lines = _clean_lines(df_lines, list_voltages, dc_hz)
 
         len_before = len(df_lines)
-        df_lines = df_lines[df_lines["frequency"] == "50"]
+        df_lines = df_lines[df_lines["frequency"] != dc_hz]
         logger.info(
             "Dropped %d DC lines. Keeping %d AC lines.",
             len_before - len(df_lines),
@@ -1148,12 +1160,18 @@ def clean_osm_data(
 
 
 if __name__ == "__main__":
+    if "snakemake" not in globals():
+        from scripts._helpers import mock_snakemake
+
+        snakemake = mock_snakemake("clean_osm_data")
+
     configure_logging(snakemake.log[0])
+    inputs = {name: list(paths) for name, paths in snakemake.input.items()}
     buses, polygons, lines = clean_osm_data(
-        list(snakemake.input.raw),
+        inputs,
         snakemake.params.network,
         snakemake.params.regions,
-        list(snakemake.input.relations),
+        snakemake.params.crs["geo"],
     )
     logger.info(
         "Retained %d buses, %d substation polygons, and %d AC lines/cables.",

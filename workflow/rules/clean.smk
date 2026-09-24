@@ -5,14 +5,29 @@
 
 rule clean_osm_data:
     input:
-        raw=expand(
-            "<resources>/osm/out/{country}_{feature}.csv",
+        lines_way=expand(
+            "<resources>/osm/retrieve/{country}_lines_way.json",
             country=config["countries"],
-            feature=config["retrieve"]["features"],
         ),
-        relations=(
+        cables_way=expand(
+            "<resources>/osm/retrieve/{country}_cables_way.json",
+            country=config["countries"],
+        ),
+        substations_way=expand(
+            "<resources>/osm/retrieve/{country}_substations_way.json",
+            country=config["countries"],
+        ),
+        substations_node=expand(
+            "<resources>/osm/retrieve/{country}_substations_node.json",
+            country=config["countries"],
+        ),
+        substations_relation=expand(
+            "<resources>/osm/retrieve/{country}_substations_relation.json",
+            country=config["countries"],
+        ),
+        routes_relation=(
             expand(
-                "<resources>/osm/out/{country}_relation.json",
+                "<resources>/osm/retrieve/{country}_routes_relation.json",
                 country=config["countries"],
             )
             if config["retrieve"]["include_relations"]
@@ -33,6 +48,7 @@ rule clean_osm_data:
             code: value.model_dump(mode="json")
             for code, value in config["regions"].items()
         },
+        crs=config["crs"].model_dump(mode="json"),
     message:
         "Cleaning retrieved OSM power features."
     script:

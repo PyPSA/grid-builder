@@ -2,65 +2,73 @@
 #
 # SPDX-License-Identifier: MIT
 
+from pathlib import Path
 
-rule retrieve_osm:
-    output:
-        csv=expand(
-            "<resources>/osm/out/{country}_{feature}.csv",
-            country="{country}",
-            feature=config["retrieve"]["features"],
-        ),
-        geojson=expand(
-            "<resources>/osm/out/{country}_{feature}.geojson",
-            country="{country}",
-            feature=config["retrieve"]["features"],
-        ),
-    log:
-        "<logs>/retrieve_osm/{country}.log",
-    conda:
-        "../envs/retrieve.yaml"
-    threads: 1
-    params:
-        primary_name=config["retrieve"]["primary_name"],
-        features=config["retrieve"]["features"],
-        source=config["retrieve"]["source"],
-        force_redownload=config["retrieve"]["force_redownload"],
-        mp=config["retrieve"]["mp"],
-        stream_backend=config["retrieve"]["stream_backend"],
-        cache_primary=config["retrieve"]["cache_primary"],
-        target_date=config["retrieve"]["target_date"],
-    message:
-        "Retrieve OSM data for one country."
-    script:
-        "../scripts/retrieve_osm.py"
+# Both retrieve_osm_pbf and retrieve_osm_overpass produce this same fixed
+# set of six files per country (routes_relation included even when
+# retrieve.include_relations is off, just empty) — see either script's
+# module docstring for why relations aren't optional at the retrieval layer
+# even though clean_osm_data only ever reads routes_relation.json when the
+# config flag is on. Only one of the two rules below is ever defined, since
+# retrieve.source picks exactly one implementation for the same output
+# paths — defining both unconditionally would make Snakemake's DAG
+# ambiguous about which one produces a given {country}_{feature}.json.
+_OSM_FEATURES = [
+    "lines_way",
+    "cables_way",
+    "substations_way",
+    "substations_node",
+    "substations_relation",
+    "routes_relation",
+]
+_OSM_OUTPUTS = {
+    feature: f"<resources>/osm/retrieve/{{country}}_{feature}.json"
+    for feature in _OSM_FEATURES
+}
 
 
-rule retrieve_osm_relations:
-    output:
-        json="<resources>/osm/out/{country}_relation.json",
-    log:
-        "<logs>/retrieve_osm_relations/{country}.log",
-    conda:
-        "../envs/retrieve.yaml"
-    threads: 1
-    params:
-        source=config["retrieve"]["source"],
-        force_redownload=config["retrieve"]["force_redownload"],
-    message:
-        "Retrieve OSM route=power relations for one country."
-    script:
-        "../scripts/retrieve_osm_relations.py"
+if config["retrieve"]["source"] == "geofabrik":
+
+    rule retrieve_osm_pbf:
+        output:
+            **_OSM_OUTPUTS,
+        log:
+            "<logs>/retrieve_osm_pbf/{country}.log",
+        conda:
+            "../envs/retrieve.yaml"
+        threads: 1
+        params:
+            include_relations=config["retrieve"]["include_relations"],
+            force_redownload=config["retrieve"]["force_redownload"],
+            data_dir=str(Path(workflow.basedir).parent / "data" / "earth-osm"),
+        message:
+            "Retrieve OSM power features for one country from a local PBF file."
+        script:
+            "../scripts/retrieve_osm_pbf.py"
+
+elif config["retrieve"]["source"] == "overpass":
+
+    rule retrieve_osm_overpass:
+        output:
+            **_OSM_OUTPUTS,
+        log:
+            "<logs>/retrieve_osm_overpass/{country}.log",
+        conda:
+            "../envs/retrieve.yaml"
+        threads: 1
+        params:
+            include_relations=config["retrieve"]["include_relations"],
+            overpass_api=config["retrieve"]["overpass_api"].model_dump(mode="json"),
+        message:
+            "Retrieve OSM power features for one country from the Overpass API."
+        script:
+            "../scripts/retrieve_osm_overpass.py"
 
 
 rule retrieve_osm_all:
     input:
-        csv=expand(
-            "<resources>/osm/out/{country}_{feature}.csv",
+        expand(
+            "<resources>/osm/retrieve/{country}_{feature}.json",
             country=config["countries"],
-            feature=config["retrieve"]["features"],
-        ),
-        geojson=expand(
-            "<resources>/osm/out/{country}_{feature}.geojson",
-            country=config["countries"],
-            feature=config["retrieve"]["features"],
+            feature=_OSM_FEATURES,
         ),

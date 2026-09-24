@@ -7,51 +7,85 @@ import pandas as pd
 from shapely.geometry import LineString
 
 from workflow.scripts.build_osm_network import build_osm_network
-from workflow.scripts.clean_osm_data import clean_osm_data
+from workflow.scripts.clean_osm_data import _region_ac_hz, clean_osm_data
+
+
+def _write(path, elements):
+    path.write_text(json.dumps({"elements": elements}))
+
+
+def _ring(lon0, lat0, lon1, lat1):
+    return [
+        {"lon": lon0, "lat": lat0},
+        {"lon": lon1, "lat": lat0},
+        {"lon": lon1, "lat": lat1},
+        {"lon": lon0, "lat": lat1},
+        {"lon": lon0, "lat": lat0},
+    ]
+
+
+_NETWORK = {"minimum_voltage_kv": 220, "frequency_hz": {"AC": 50.0, "DC": 0.0}}
+_GEO_CRS = "EPSG:4326"
+_DISTANCE_CRS = "EPSG:3035"
+
+
+def test_region_ac_hz_handles_null_frequency_override():
+    """A country with no override still resolves.
+
+    Its ``regions`` entry carries an explicit ``frequency_hz: None`` key
+    (not a missing key) — the real shape
+    ``RegionalNetworkConfig.model_dump()`` produces for any country without
+    a regional frequency override.
+    """
+    regions = {"BE": {"minimum_voltage_kv": None, "frequency_hz": None}}
+    assert _region_ac_hz("BE", _NETWORK, regions) == "50"
+
+    regions_us = {
+        "US": {"minimum_voltage_kv": None, "frequency_hz": {"AC": 60.0, "DC": None}}
+    }
+    assert _region_ac_hz("US", _NETWORK, regions_us) == "60"
 
 
 def test_cleaner_removes_line_in_overlapping_substation_polygons(tmp_path):
     """Containment filtering remains index-safe when polygons overlap."""
-    square = [[4.0, 50.0], [4.1, 50.0], [4.1, 50.1], [4.0, 50.1], [4.0, 50.0]]
-    frame = pd.DataFrame(
+    square = _ring(4.0, 50.0, 4.1, 50.1)
+    substations_path = tmp_path / "BE_substations_way.json"
+    _write(
+        substations_path,
         [
             {
-                "Type": "area",
+                "type": "way",
                 "id": 1,
-                "lonlat": json.dumps(square),
-                "tags.power": "substation",
-                "tags.voltage": "220000",
+                "tags": {"power": "substation", "voltage": "220000"},
+                "geometry": square,
             },
             {
-                "Type": "area",
+                "type": "way",
                 "id": 2,
-                "lonlat": json.dumps(square),
-                "tags.power": "substation",
-                "tags.voltage": "220000",
+                "tags": {"power": "substation", "voltage": "220000"},
+                "geometry": square,
             },
-        ]
+        ],
     )
-    substations_path = tmp_path / "BE_substation.csv"
-    frame.to_csv(substations_path, index=False)
 
-    lines_frame = pd.DataFrame(
+    lines_path = tmp_path / "BE_lines_way.json"
+    _write(
+        lines_path,
         [
             {
-                "Type": "way",
+                "type": "way",
                 "id": 3,
-                "lonlat": json.dumps([[4.02, 50.02], [4.08, 50.08]]),
-                "tags.power": "line",
-                "tags.voltage": "220000",
+                "tags": {"power": "line", "voltage": "220000"},
+                "geometry": [{"lon": 4.02, "lat": 50.02}, {"lon": 4.08, "lat": 50.08}],
             }
-        ]
+        ],
     )
-    lines_path = tmp_path / "BE_line.csv"
-    lines_frame.to_csv(lines_path, index=False)
 
-    network = {"minimum_voltage_kv": 220}
-    buses, polygons, lines = clean_osm_data(
-        [str(substations_path), str(lines_path)], network, {}
-    )
+    inputs = {
+        "substations_way": [str(substations_path)],
+        "lines_way": [str(lines_path)],
+    }
+    buses, polygons, lines = clean_osm_data(inputs, _NETWORK, {}, _GEO_CRS)
 
     assert set(buses["bus_id"]) == {"way/1", "way/2"}
     assert len(polygons) == 2
@@ -60,26 +94,6 @@ def test_cleaner_removes_line_in_overlapping_substation_polygons(tmp_path):
 
 def test_cleaner_groups_relation_member_ways_into_one_line(tmp_path):
     """A route=power relation collapses its member ways into one circuit."""
-    frame = pd.DataFrame(
-        [
-            {
-                "Type": "way",
-                "id": 10,
-                "lonlat": json.dumps([[4.0, 50.0], [4.1, 50.0]]),
-                "tags.power": "line",
-                "tags.voltage": "380000",
-            },
-            {
-                "Type": "way",
-                "id": 11,
-                "lonlat": json.dumps([[4.1, 50.0], [4.2, 50.0]]),
-                "tags.power": "line",
-                "tags.voltage": "380000",
-            },
-        ]
-    )
-    raw = tmp_path / "BE_line.csv"
-    frame.to_csv(raw, index=False)
 
     def _member(ref: int, lon0: float, lon1: float) -> dict:
         return {
@@ -89,21 +103,40 @@ def test_cleaner_groups_relation_member_ways_into_one_line(tmp_path):
             "geometry": [{"lat": 50.0, "lon": lon0}, {"lat": 50.0, "lon": lon1}],
         }
 
-    relation_payload = {
-        "elements": [
+    lines_path = tmp_path / "BE_lines_way.json"
+    _write(
+        lines_path,
+        [
+            {
+                "type": "way",
+                "id": 10,
+                "tags": {"power": "line", "voltage": "380000"},
+                "geometry": [{"lon": 4.0, "lat": 50.0}, {"lon": 4.1, "lat": 50.0}],
+            },
+            {
+                "type": "way",
+                "id": 11,
+                "tags": {"power": "line", "voltage": "380000"},
+                "geometry": [{"lon": 4.1, "lat": 50.0}, {"lon": 4.2, "lat": 50.0}],
+            },
+        ],
+    )
+
+    relations_path = tmp_path / "BE_routes_relation.json"
+    _write(
+        relations_path,
+        [
             {
                 "type": "relation",
                 "id": 99,
                 "tags": {"route": "power", "voltage": "380000", "cables": "3"},
                 "members": [_member(10, 4.0, 4.1), _member(11, 4.1, 4.2)],
             }
-        ]
-    }
-    relations_path = tmp_path / "BE_relation.json"
-    relations_path.write_text(json.dumps(relation_payload))
+        ],
+    )
 
-    network = {"minimum_voltage_kv": 220}
-    _, _, lines = clean_osm_data([str(raw)], network, {}, [str(relations_path)])
+    inputs = {"lines_way": [str(lines_path)], "routes_relation": [str(relations_path)]}
+    _, _, lines = clean_osm_data(inputs, _NETWORK, {}, _GEO_CRS)
 
     assert len(lines) == 1
     assert lines.iloc[0]["line_id"] == "relation/99"
@@ -155,10 +188,23 @@ def test_builder_merges_compatible_segments_through_virtual_bus():
         crs="EPSG:4326",
     )
 
-    buses, built_lines, transformers = build_osm_network(
-        substations, substations_polygon, lines, "keep", None, merge_distance_m=1
+    buses, built_lines, transformers, stations_polygon, buses_polygon = (
+        build_osm_network(
+            substations,
+            substations_polygon,
+            lines,
+            False,
+            None,
+            _GEO_CRS,
+            _DISTANCE_CRS,
+            merge_distance_m=1,
+        )
     )
 
     assert len(buses) == 2
     assert len(built_lines) == 1
     assert len(transformers) == 0
+    assert list(stations_polygon.columns) == ["station_id", "geometry"]
+    assert len(stations_polygon) == 2
+    assert list(buses_polygon.columns) == ["bus_id", "geometry"]
+    assert buses_polygon.empty
