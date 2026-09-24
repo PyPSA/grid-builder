@@ -7,10 +7,12 @@ pathvars:
     resources:
       default: "<resources>"
       description: >-
-        Raw OSM files are written to osm/retrieve/{country}_{feature}.json.
-        Clean features are written below osm/clean; generic network outputs
-        below osm/build (buses/lines/transformers as CSV under osm/build/csv
-        and GeoJSON, including substation polygons, under osm/build/geojson).
+        Raw OSM files are written to retrieve/{country}_{feature}.json.
+        Clean features are written below clean; generic network outputs
+        below build (buses/lines/transformers as CSV under build/csv
+        and GeoJSON, including substation polygons, under build/geojson).
+        An interactive PyDeck map of the network, and the default target
+        of this workflow, is written to map.html.
     results:
       default: "<results>"
       description: location of module result files.

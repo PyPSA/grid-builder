@@ -21,6 +21,7 @@ Currently implemented:
 1. Retrieve OSM substations, lines, cables, and (optionally) circuit relations by country, either from a cached local Geofabrik PBF extract or the live Overpass API.
 2. Clean the raw retrieval output, filtering voltage, frequency, construction status, and future assets, and grouping relation member ways into one line per real-world circuit.
 3. Merge nearby stations and line endpoints into generic buses, AC lines, and transformers.
+4. Build a self-contained interactive map of the resulting network (`map.html`), with layer toggles, voltage/text filtering, and click-through OSM links — this is the workflow's default target.
 
 ## Configuration
 
@@ -30,15 +31,17 @@ Configuration lives in [`config/config.yaml`](./config/config.yaml), validated a
 
 Please consult the [interface file](./INTERFACE.yaml) for more information.
 
-Raw retrieval outputs use `<resources>/osm/retrieve/{country}_{feature}.json`, one
+Raw retrieval outputs use `<resources>/retrieve/{country}_{feature}.json`, one
 file per country and feature (`lines_way`, `cables_way`, `substations_way`,
 `substations_node`, `substations_relation`, `routes_relation`). Both retrieval
 backends write the same raw-Overpass-JSON shape, so downstream cleaning doesn't
-need to know which one ran. Clean features use `<resources>/osm/clean/*.geojson`;
-generic network components use `<resources>/osm/build/csv/{buses,lines,transformers}.csv`
-and matching GeoJSON files under `<resources>/osm/build/geojson/`, which also
+need to know which one ran. Clean features use `<resources>/clean/*.geojson`;
+generic network components use `<resources>/build/csv/{buses,lines,transformers}.csv`
+and matching GeoJSON files under `<resources>/build/geojson/`, which also
 includes `stations_polygon.geojson` (clustered station shapes) and
 `buses_polygon.geojson` (substation polygons scoped to the buses in the output).
+An interactive map of the network is written to `<resources>/map.html`; it is
+a standalone HTML file (no server required) and the workflow's default target.
 Country logs use `<logs>/retrieve_osm_pbf/{country}.log` or
 `<logs>/retrieve_osm_overpass/{country}.log`, depending on `retrieve.source`. The
 integration example sets these roots to `resources/grid-builder` and
