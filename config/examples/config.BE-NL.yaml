@@ -9,5 +9,5 @@ retrieve:
 
 network:
   minimum_voltage_kv: 220.0
-  station_merge_distance_m: 500.0
+  station_merge_radius_m: 500.0
   remove_after: 2026-12-31

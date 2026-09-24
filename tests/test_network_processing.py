@@ -143,7 +143,7 @@ def test_cleaner_groups_relation_member_ways_into_one_line(tmp_path):
     assert lines.iloc[0].geometry.length > 0
 
 
-def test_builder_merges_compatible_segments_through_virtual_bus():
+def test_builder_merges_compatible_segments_through_virtual_bus(monkeypatch):
     """A degree-two endpoint that isn't a real substation does not remain a bus."""
     substations = gpd.GeoDataFrame(
         {
@@ -188,6 +188,19 @@ def test_builder_merges_compatible_segments_through_virtual_bus():
         crs="EPSG:4326",
     )
 
+    station_seeds = build_osm_network.__globals__["_create_station_seeds"]
+    captured = {}
+
+    def capture_station_merge_radius(*args, **kwargs):
+        captured["tol"] = kwargs["tol"]
+        return station_seeds(*args, **kwargs)
+
+    monkeypatch.setitem(
+        build_osm_network.__globals__,
+        "_create_station_seeds",
+        capture_station_merge_radius,
+    )
+
     buses, built_lines, transformers, stations_polygon, buses_polygon = (
         build_osm_network(
             substations,
@@ -197,13 +210,14 @@ def test_builder_merges_compatible_segments_through_virtual_bus():
             None,
             _GEO_CRS,
             _DISTANCE_CRS,
-            merge_distance_m=1,
+            station_merge_radius_m=1,
         )
     )
 
     assert len(buses) == 2
     assert len(built_lines) == 1
     assert len(transformers) == 0
+    assert captured["tol"] == 1
     assert list(stations_polygon.columns) == ["station_id", "geometry"]
     assert len(stations_polygon) == 2
     assert list(buses_polygon.columns) == ["bus_id", "geometry"]

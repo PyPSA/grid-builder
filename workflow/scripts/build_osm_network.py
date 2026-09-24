@@ -716,7 +716,7 @@ def build_osm_network(
     remove_after: str | None,
     geo_crs: str,
     distance_crs: str,
-    merge_distance_m: float = BUS_TOL,
+    station_merge_radius_m: float = BUS_TOL,
 ) -> tuple[
     gpd.GeoDataFrame,
     gpd.GeoDataFrame,
@@ -792,7 +792,11 @@ def build_osm_network(
     )
 
     stations = _create_station_seeds(
-        buses, buses_polygon, distance_crs=distance_crs, geo_crs=geo_crs
+        buses,
+        buses_polygon,
+        distance_crs=distance_crs,
+        geo_crs=geo_crs,
+        tol=station_merge_radius_m,
     )
     buses = _merge_buses_to_stations(
         buses, stations, distance_crs=distance_crs, geo_crs=geo_crs
@@ -949,7 +953,7 @@ if __name__ == "__main__":
         snakemake.params.remove_after,
         snakemake.params.crs["geo"],
         snakemake.params.crs["distance"],
-        snakemake.params.station_merge_distance_m,
+        snakemake.params.station_merge_radius_m,
     )
     logger.info(
         "Built %d buses, %d lines, and %d transformers.",

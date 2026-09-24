@@ -123,9 +123,9 @@
             }
           }
         },
-        "station_merge_distance_m": {
+        "station_merge_radius_m": {
           "default": 500.0,
-          "description": "Distance used to merge nearby substations and line endpoints, in metres",
+          "description": "Buffer radius used to merge nearby substations and line endpoints, in metres",
           "exclusiveMinimum": 0,
           "type": "number"
         },

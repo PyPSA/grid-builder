@@ -62,16 +62,14 @@ def test_selected_regions_load_checked_in_overrides(tmp_path):
     regions = tmp_path / "regions"
     regions.mkdir()
     (regions / "config.BE.yaml").write_text("network:\n  minimum_voltage_kv: 230\n")
-    (regions / "config.NL.yaml").write_text(
-        "network:\n  station_merge_distance_m: 600\n"
-    )
+    (regions / "config.NL.yaml").write_text("network:\n  station_merge_radius_m: 600\n")
     config = load_region_configs(
         {"countries": ["BE", "NL"], "regions": {"BE": {"minimum_voltage_kv": 225}}},
         regions,
     )
     assert config["regions"] == {
         "BE": {"minimum_voltage_kv": 225},
-        "NL": {"station_merge_distance_m": 600},
+        "NL": {"station_merge_radius_m": 600},
     }
 
 

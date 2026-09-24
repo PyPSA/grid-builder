@@ -23,7 +23,7 @@ rule build_osm_network:
         "../envs/network.yaml"
     threads: 1
     params:
-        station_merge_distance_m=config["network"]["station_merge_distance_m"],
+        station_merge_radius_m=config["network"]["station_merge_radius_m"],
         remove_under_construction=config["network"]["remove_under_construction"],
         remove_after=config["network"]["remove_after"],
         crs=config["crs"].model_dump(mode="json"),

@@ -9,7 +9,7 @@ PBF extract (`retrieve_osm_pbf.py`), `overpass` queries the live Overpass API
 `clean_osm_data` doesn't need to know which one ran. `retrieve.include_relations`
 additionally retrieves `route=power`/`power=circuit` relations, so member ways
 are grouped into one line per real-world circuit. `network` controls the
-minimum retained AC voltage, station merge distance, construction filtering, and
+minimum retained AC voltage, station merge buffer radius, construction filtering, and
 planned-asset cutoff date.
 
 The [BE+NL example](./examples/config.BE-NL.yaml) is a small European development

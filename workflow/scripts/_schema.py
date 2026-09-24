@@ -137,9 +137,9 @@ class NetworkConfig(ConfigModel):
         default_factory=FrequencyConfig,
         description="AC/DC frequency in Hz; override per country in config/regions for e.g. 60 Hz grids",
     )
-    station_merge_distance_m: float = Field(
+    station_merge_radius_m: float = Field(
         500.0,
-        description="Distance used to merge nearby substations and line endpoints, in metres",
+        description="Buffer radius used to merge nearby substations and line endpoints, in metres",
         gt=0,
     )
     remove_under_construction: bool = Field(
