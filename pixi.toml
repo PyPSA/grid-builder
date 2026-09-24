@@ -32,6 +32,7 @@ osmium-tool = ">=1.19,<2"
 pandas = ">=2,<3"
 pyogrio = ">=0.10,<1"
 pyosmium = ">=4,<5"
+pydeck = ">=0.9,<1"
 requests = ">=2,<3"
 shapely = ">=2,<3"
 

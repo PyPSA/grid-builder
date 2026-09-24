@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Contributors to grid-builder <https://github.com/pypsa/grid-builder
+#
+# SPDX-License-Identifier: MIT
+
+# PyPSA-Eur transmission-voltage palette. Bounds are in kV and inclusive.
+lines:
+  voltage:
+    "0-150": "#ffff00"
+    "151-240": "#00fa00"
+    "241-330": "#ffa500"
+    "331-420": "#ff2800"
+    "421-inf": "#ff00ff"

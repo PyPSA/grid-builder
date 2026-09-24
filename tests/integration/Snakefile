@@ -18,4 +18,5 @@ use rule * from grid_builder as grid_builder_*
 rule all:
     default_target: True
     input:
-        rules.grid_builder_build_osm_network.output,
+        rules.grid_builder_build_network.output,
+        rules.grid_builder_build_interactive_map.output,
