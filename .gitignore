@@ -10,6 +10,7 @@
 \#*\#
 **/.vscode
 .$*
+.claude/
 
 ### Byte-compiled files
 __pycache__
@@ -37,6 +38,7 @@ gurobi.log
 
 # earth-osm cache
 data/earth-osm/
+tests/data/earth-osm/
 
 # Personal overrides (e.g. a custom Overpass API endpoint/token), passed via
 # --configfile config/config.local.yaml; never committed.
