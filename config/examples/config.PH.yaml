@@ -1,0 +1,12 @@
+# Philippines scope for the OSM cleaning and network-building pipeline.
+countries:
+  - PH
+
+retrieve:
+  source: overpass
+
+network:
+  include_relations: true
+  minimum_voltage_kv: 120.0
+  station_merge_radius_m: 500.0
+  remove_after: 2026-12-31

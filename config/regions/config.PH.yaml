@@ -1,0 +1,6 @@
+# Philippines: 60 Hz grid; lower minimum voltage than the European default
+# to retain its sub-transmission network.
+network:
+  minimum_voltage_kv: 120
+  frequency_hz:
+    AC: 60.0
