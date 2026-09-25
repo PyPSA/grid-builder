@@ -35,6 +35,7 @@ pyosmium = ">=4,<5"
 pydeck = ">=0.9,<1"
 requests = ">=2,<3"
 shapely = ">=2,<3"
+pre-commit = ">=4.6.2,<5"
 
 [tasks]
 test = {cmd = "pytest tests"}
