@@ -6,8 +6,13 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString
 
-from workflow.scripts.build_osm_network import build_osm_network
-from workflow.scripts.clean_osm_data import _region_ac_hz, clean_osm_data
+from workflow.scripts.build_network import build_network
+from workflow.scripts.clean import (
+    _apply_corrections,
+    _filter_by_voltage,
+    _region_ac_hz,
+    clean,
+)
 
 
 def _write(path, elements):
@@ -44,6 +49,30 @@ def test_region_ac_hz_handles_null_frequency_override():
         "US": {"minimum_voltage_kv": None, "frequency_hz": {"AC": 60.0, "DC": None}}
     }
     assert _region_ac_hz("US", _NETWORK, regions_us) == "60"
+
+
+def test_apply_corrections_exact_matches_whole_value_only():
+    """An ``exact`` step only fires on a value equal to the pattern, unlike ``replace``.
+
+    A freeform voltage tag containing an unrelated "m" (e.g. "amperes")
+    must survive untouched, where a substring "replace" would corrupt it.
+    """
+    column = pd.Series(["m", "amperes", "medium"])
+    steps = [{"exact": ["m", "33000"]}, {"exact": ["medium", "99000"]}]
+    result = _apply_corrections(column, steps)
+    assert list(result) == ["33000", "amperes", "99000"]
+
+
+def test_filter_by_voltage_drops_oversized_garbage_without_crashing():
+    """A voltage tag that cleans up into an implausibly long digit string.
+
+    (e.g. freeform text misusing the voltage key) is dropped as noise
+    instead of overflowing ``astype(int)``'s fixed-width C long.
+    """
+    df = pd.DataFrame({"voltage": ["230000", "9" * 15]})
+    filtered, list_voltages = _filter_by_voltage(df, min_voltage=220000)
+    assert list(list_voltages) == ["230000"]
+    assert list(filtered["voltage"]) == ["230000"]
 
 
 def test_cleaner_removes_line_in_overlapping_substation_polygons(tmp_path):
@@ -85,7 +114,7 @@ def test_cleaner_removes_line_in_overlapping_substation_polygons(tmp_path):
         "substations_way": [str(substations_path)],
         "lines_way": [str(lines_path)],
     }
-    buses, polygons, lines = clean_osm_data(inputs, _NETWORK, {}, _GEO_CRS)
+    buses, polygons, lines = clean(inputs, _NETWORK, {}, _GEO_CRS)
 
     assert set(buses["bus_id"]) == {"way/1", "way/2"}
     assert len(polygons) == 2
@@ -136,7 +165,7 @@ def test_cleaner_groups_relation_member_ways_into_one_line(tmp_path):
     )
 
     inputs = {"lines_way": [str(lines_path)], "routes_relation": [str(relations_path)]}
-    _, _, lines = clean_osm_data(inputs, _NETWORK, {}, _GEO_CRS)
+    _, _, lines = clean(inputs, _NETWORK, {}, _GEO_CRS)
 
     assert len(lines) == 1
     assert lines.iloc[0]["line_id"] == "relation/99"
@@ -188,7 +217,7 @@ def test_builder_merges_compatible_segments_through_virtual_bus(monkeypatch):
         crs="EPSG:4326",
     )
 
-    station_seeds = build_osm_network.__globals__["_create_station_seeds"]
+    station_seeds = build_network.__globals__["_create_station_seeds"]
     captured = {}
 
     def capture_station_merge_radius(*args, **kwargs):
@@ -196,22 +225,18 @@ def test_builder_merges_compatible_segments_through_virtual_bus(monkeypatch):
         return station_seeds(*args, **kwargs)
 
     monkeypatch.setitem(
-        build_osm_network.__globals__,
-        "_create_station_seeds",
-        capture_station_merge_radius,
+        build_network.__globals__, "_create_station_seeds", capture_station_merge_radius
     )
 
-    buses, built_lines, transformers, stations_polygon, buses_polygon = (
-        build_osm_network(
-            substations,
-            substations_polygon,
-            lines,
-            False,
-            None,
-            _GEO_CRS,
-            _DISTANCE_CRS,
-            station_merge_radius_m=1,
-        )
+    buses, built_lines, transformers, stations_polygon, buses_polygon = build_network(
+        substations,
+        substations_polygon,
+        lines,
+        False,
+        None,
+        _GEO_CRS,
+        _DISTANCE_CRS,
+        station_merge_radius_m=1,
     )
 
     assert len(buses) == 2

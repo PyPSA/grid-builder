@@ -19,6 +19,23 @@ from ruamel.yaml.comments import CommentedMap
 _VALID_REGIONS: frozenset[str] = frozenset(get_all_valid_codes())
 
 
+def _validate_countries(countries: list[str]) -> None:
+    """Raise a clear error for any country not recognised by earth-osm's region list.
+
+    Shared by ``ConfigSchema``'s field validator and ``load_region_configs``:
+    the latter resolves ``countries`` into region codes *before* the model is
+    ever validated, so without this same check up front, an invalid code
+    reaches ``earth_osm.regions.get_region_tuple`` first and surfaces as a
+    raw ``KeyError`` instead of this message.
+    """
+    invalid = [c for c in countries if c not in _VALID_REGIONS]
+    if invalid:
+        raise ValueError(
+            f"Unknown country identifier(s): {invalid}. "
+            "Use an English name (e.g. 'benin') or ISO 3166-1 alpha-2 code (e.g. 'BE')."
+        )
+
+
 class ConfigModel(BaseModel):
     """Base model with dict-like access for Snakemake compatibility."""
 
@@ -87,14 +104,6 @@ class RetrieveConfig(ConfigModel):
         "geofabrik", description="Retrieval backend for OSM data"
     )
     force_redownload: bool = Field(False, description="Force refresh of cached data")
-    include_relations: bool = Field(
-        True,
-        description=(
-            "Additionally retrieve OSM route=power/power=circuit relations, "
-            "so clean_osm_data can group their member ways into a single line "
-            "matching the relation's real-world circuit"
-        ),
-    )
     target_date: datetime | None = Field(
         None,
         description=(
@@ -130,6 +139,15 @@ class NetworkConfig(ConfigModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    include_relations: bool = Field(
+        True,
+        description=(
+            "Whether the network should consider OSM route=power/power=circuit "
+            "relations, grouping their member ways into a single line matching "
+            "the relation's real-world circuit; retrieval respects this too, "
+            "so relations aren't fetched at all when it's off"
+        ),
+    )
     minimum_voltage_kv: float = Field(
         220.0, description="Minimum nominal AC voltage retained from OSM, in kV", gt=0
     )
@@ -151,21 +169,49 @@ class NetworkConfig(ConfigModel):
     )
 
 
-class CrsConfig(ConfigModel):
-    """Coordinate reference systems used throughout clean_osm_data/build_osm_network."""
+class SimplifyGeometriesConfig(ConfigModel):
+    """Douglas-Peucker simplification tolerances for the interactive map."""
 
     model_config = ConfigDict(extra="forbid")
 
-    geo: str = Field(
-        "EPSG:4326", description="Geographic CRS used to store and exchange coordinates"
+    enable: bool = Field(
+        True,
+        description="Whether to simplify station/bus-polygon/line geometries before embedding them in the interactive map",
     )
-    distance: str = Field(
-        "EPSG:3035",
+    stations_m: float = Field(
+        100.0,
+        description="Simplification tolerance for station polygon outlines, in metres",
+        ge=0,
+    )
+    buses_polygon_m: float = Field(
+        5.0,
+        description="Simplification tolerance for individual bus/substation footprint polygons, in metres",
+        ge=0,
+    )
+    lines_m: float = Field(
+        30.0,
+        description="Simplification tolerance for line geometries, in metres",
+        ge=0,
+    )
+
+
+class InteractiveMapConfig(ConfigModel):
+    """Geometry simplification and coordinate rounding for build_interactive_map.py."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    coordinate_decimals: int = Field(
+        5,
         description=(
-            "Equal-area/equal-distance CRS used for buffering and length "
-            "calculations; must suit the geographic extent in use (the "
-            "default, ETRS89-LAEA, covers Europe)"
+            "Decimal places kept for coordinates embedded in the interactive "
+            "map; 5 is about 1.1m of precision at the equator, comfortably "
+            "below every simplification tolerance below"
         ),
+        ge=0,
+    )
+    simplify_geometries: SimplifyGeometriesConfig = Field(
+        default_factory=SimplifyGeometriesConfig,
+        description="Geometry simplification tolerances for the interactive map",
     )
 
 
@@ -187,6 +233,24 @@ class RegionalNetworkConfig(ConfigModel):
     frequency_hz: RegionalFrequencyConfig | None = Field(None)
 
 
+class CrsConfig(ConfigModel):
+    """Coordinate reference systems used throughout clean/build_network."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    geo: str = Field(
+        "EPSG:4326", description="Geographic CRS used to store and exchange coordinates"
+    )
+    distance: str = Field(
+        "EPSG:3035",
+        description=(
+            "Equal-area/equal-distance CRS used for buffering and length "
+            "calculations; must suit the geographic extent in use (the "
+            "default, ETRS89-LAEA, covers Europe)"
+        ),
+    )
+
+
 class ConfigSchema(ConfigModel):
     """Top-level grid-builder config."""
 
@@ -202,12 +266,7 @@ class ConfigSchema(ConfigModel):
     @classmethod
     def validate_country_identifiers(cls, v: list[str]) -> list[str]:
         """Reject any country not recognised by earth-osm's region list."""
-        invalid = [c for c in v if c not in _VALID_REGIONS]
-        if invalid:
-            raise ValueError(
-                f"Unknown country identifier(s): {invalid}. "
-                "Use an English name (e.g. 'benin') or ISO 3166-1 alpha-2 code (e.g. 'BE')."
-            )
+        _validate_countries(v)
         return v
 
     retrieve: RetrieveConfig = Field(
@@ -216,15 +275,19 @@ class ConfigSchema(ConfigModel):
     )
     network: NetworkConfig = Field(
         default_factory=NetworkConfig,
-        description="Settings for clean_osm_data and build_osm_network",
+        description="Settings for clean and build_network",
     )
     regions: dict[str, RegionalNetworkConfig] = Field(
         default_factory=dict,
         description="Country-specific network overrides loaded from config/regions",
     )
+    interactive_map: InteractiveMapConfig = Field(
+        default_factory=InteractiveMapConfig,
+        description="Settings for build_interactive_map.py",
+    )
     crs: CrsConfig = Field(
         default_factory=CrsConfig,
-        description="Coordinate reference systems used throughout clean_osm_data/build_osm_network",
+        description="Coordinate reference systems used throughout clean/build_network",
     )
 
 
@@ -251,6 +314,7 @@ def load_region_configs(
     raw = config.copy()
     supplied_regions = raw.pop("regions", {})
     countries = raw.get("countries", ConfigSchema.model_fields["countries"].default)
+    _validate_countries(countries)
     yaml_reader = YAML(typ="safe")
     loaded_regions: dict[str, Any] = {}
 

@@ -8,7 +8,7 @@ Used for ``retrieve.source: geofabrik``. earth-osm is kept only for region
 resolution and PBF download/caching (``get_region_tuple``,
 ``download_region_pbf``) — reading the file itself is done directly with
 osmium, since earth-osm's own PBF parser (and its Overpass client) parses
-relations internally but never exports them, and this way clean_osm_data.py
+relations internally but never exports them, and this way clean.py
 gets the exact same file shape regardless of whether the data came from a
 local PBF (this script) or a live Overpass query (retrieve_osm_overpass.py).
 
@@ -321,7 +321,7 @@ def _extract_from_filtered_pbf(
     # Always written, even empty when include_relations is off: this keeps
     # every retrieval rule producing the same fixed six files per country,
     # so whether a routes_relation.json is actually read is decided in one
-    # place (clean_osm_data's rule input), not duplicated into every writer.
+    # place (clean.py's rule input), not duplicated into every writer.
     return {
         "lines_way": {"elements": resolver.ways_by_feature["line"]},
         "cables_way": {"elements": resolver.ways_by_feature["cable"]},

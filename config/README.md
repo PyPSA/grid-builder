@@ -6,16 +6,22 @@ mapping in the calling configuration overrides values from those regional files.
 `retrieve.source` picks the retrieval backend: `geofabrik` reads a cached local
 PBF extract (`retrieve_osm_pbf.py`), `overpass` queries the live Overpass API
 (`retrieve_osm_overpass.py`). Both produce the same output shape, so
-`clean_osm_data` doesn't need to know which one ran. `retrieve.include_relations`
-additionally retrieves `route=power`/`power=circuit` relations, so member ways
-are grouped into one line per real-world circuit. `network` controls the
-minimum retained AC voltage, station merge buffer radius, construction filtering, and
-planned-asset cutoff date.
+`clean` doesn't need to know which one ran. `network.include_relations`
+decides whether the network should consider `route=power`/`power=circuit`
+relations, grouping their member ways into one line per real-world circuit;
+retrieval respects this too, so relations aren't fetched at all when it's off.
+`network` also controls the minimum retained AC voltage, station merge buffer
+radius, construction filtering, and planned-asset cutoff date.
 
 The [BE+NL example](./examples/config.BE-NL.yaml) is a small European development
 scope. Country files under `config/regions` are intentionally small defaults for
 now; community-maintained local corrections belong there rather than in workflow
 code.
+
+`interactive_map` controls the size of `map.html`: `coordinate_decimals` rounds
+embedded coordinates, and `simplify_geometries` sets per-geometry-type
+Douglas-Peucker tolerances (in metres) for station polygons, bus polygons, and
+lines, or disables simplification entirely via `simplify_geometries.enable`.
 
 ### Personal settings and Overpass fair use
 

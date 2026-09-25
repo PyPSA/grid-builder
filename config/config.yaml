@@ -7,7 +7,6 @@ countries:
 retrieve:
   source: geofabrik
   force_redownload: false
-  include_relations: true
   target_date:
   overpass_api:
     url: "https://overpass-api.de/api/interpreter"
@@ -19,6 +18,7 @@ retrieve:
       website: "https://github.com/pypsa/grid-builder"
 
 network:
+  include_relations: true
   minimum_voltage_kv: 220.0
   frequency_hz:
     AC: 50.0
@@ -28,6 +28,14 @@ network:
   remove_after: 2026-12-31
 
 regions: {}
+
+interactive_map:
+  coordinate_decimals: 5
+  simplify_geometries:
+    enable: true
+    stations_m: 100.0
+    buses_polygon_m: 5.0
+    lines_m: 30.0
 
 crs:
   geo: "EPSG:4326"

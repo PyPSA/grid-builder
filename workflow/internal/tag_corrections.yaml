@@ -1,5 +1,5 @@
 # Module data that users cannot modify: ordered, literal string corrections
-# for known-bad OSM tag values, applied by clean_osm_data.py's `_clean_*`
+# for known-bad OSM tag values, applied by clean.py's `_clean_*`
 # functions before their general syntax cleanup. Order matters — a later
 # entry can depend on an earlier one having already run — and each list is
 # applied verbatim, so add new entries at the point in the sequence where
@@ -13,6 +13,17 @@
 # uppercase V, but by the time it runs the column is already lowercased, so
 # it can never match. Preserved as-is rather than "fixed" to keep behaviour
 # identical to the reference.
+#
+# One deliberate deviation: PyPSA-Eur applies "low"/"minor"/"medium"/"med"/
+# "m"/"high" as substring replacements (like everything else in this list),
+# but they're meant to catch a tag whose *entire* value is that word (some
+# OSM contributors classify voltage qualitatively instead of numerically).
+# As a substring match, "m" in particular corrupts any unrelated freeform
+# text containing the letter m - seen for real on a Philippines line tagged
+# voltage="...Max Amperes 100 Amps...", where every stray "m" expanded into
+# "33000" and produced a 30+ digit value that overflowed int64 downstream.
+# `exact` (whole-value match) below fixes that without changing behaviour
+# for any tag that's genuinely just "medium"/"m"/etc.
 
 voltage:
   - lower: true
@@ -23,12 +34,12 @@ voltage:
   - replace: ["kvv/", ""]
   - replace: ["11000l400", "11000"]
   - replace: ["(temp 150000)", ""]
-  - replace: ["low", "1000"]
-  - replace: ["minor", "1000"]
-  - replace: ["medium", "33000"]
-  - replace: ["med", "33000"]
-  - replace: ["m", "33000"]
-  - replace: ["high", "150000"]
+  - exact: ["low", "1000"]
+  - exact: ["minor", "1000"]
+  - exact: ["medium", "33000"]
+  - exact: ["med", "33000"]
+  - exact: ["m", "33000"]
+  - exact: ["high", "150000"]
   - replace: ["23000-109000", "109000"]
   - replace: ["380000>220000", "380000;220000"]
   - replace: [":", ";"]

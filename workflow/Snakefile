@@ -13,7 +13,7 @@ min_version("9.19")
 # Define pathvars to expose OSM retrieval outputs for downstream use.
 pathvars:
     # OSM retrieval outputs by country and feature
-    osm_retrieve="<resources>/osm/retrieve",
+    osm_retrieve="<resources>/retrieve",
 
 
 # Default configuration file generated from pydantic schema.
@@ -30,11 +30,11 @@ with open(workflow.source_path("internal/settings.yaml"), "r") as f:
 
 
 include: "rules/retrieve.smk"
-include: "rules/clean.smk"
-include: "rules/build.smk"
+include: "rules/network.smk"
+include: "rules/plot.smk"
 
 
 rule all:
     default_target: True
     input:
-        rules.build_osm_network.output,
+        rules.build_interactive_map.output,

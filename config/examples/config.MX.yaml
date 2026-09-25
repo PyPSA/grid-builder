@@ -1,0 +1,12 @@
+# Mexico scope for the OSM cleaning and network-building pipeline.
+countries:
+  - MX
+
+retrieve:
+  source: overpass
+
+network:
+  include_relations: true
+  minimum_voltage_kv: 100.0
+  station_merge_radius_m: 150.0
+  remove_after: 2026-12-31
