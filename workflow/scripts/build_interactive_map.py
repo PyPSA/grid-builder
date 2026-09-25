@@ -1069,9 +1069,11 @@ def compress_html(page: str) -> str:
         flags=re.DOTALL,
     )
 
-    parts = re.split(r"(<script>.*?</script>)", page, flags=re.DOTALL)
+    parts = re.split(
+        r"(<script>.*?</script>)", page, flags=re.DOTALL | re.IGNORECASE
+    )
     for index, part in enumerate(parts):
-        if not part.startswith("<script>"):
+        if not part.lower().startswith("<script>"):
             part = re.sub(r">\s+<", "><", part)
             part = re.sub(r"\n\s+", "\n", part)
             parts[index] = part
