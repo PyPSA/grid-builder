@@ -3,11 +3,11 @@
 A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 <p align="center">
-  <img src="./figures/example.png" width="50%">
+  <img src="./figures/example.png" width="75%">
 </p>
 
 <p align="center">
-  <img src="./figures/map_europe.png" width="50%">
+  <img src="./figures/map_europe.png" width="75%">
 </p>
 
 ## About
