@@ -18,6 +18,11 @@ scope. Country files under `config/regions` are intentionally small defaults for
 now; community-maintained local corrections belong there rather than in workflow
 code.
 
+`interactive_map` controls the size of `map.html`: `coordinate_decimals` rounds
+embedded coordinates, and `simplify_geometries` sets per-geometry-type
+Douglas-Peucker tolerances (in metres) for station polygons, bus polygons, and
+lines, or disables simplification entirely via `simplify_geometries.enable`.
+
 ### Personal settings and Overpass fair use
 
 Keep `config/config.yaml` as pure defaults — a test enforces that it matches the
