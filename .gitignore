@@ -40,6 +40,10 @@ gurobi.log
 data/earth-osm/
 tests/data/earth-osm/
 
+# test_snakemake_integration_testing's working directory; normally cleaned
+# up automatically, this is only a backstop if that's ever interrupted
+.integration-*/
+
 # Personal overrides (e.g. a custom Overpass API endpoint/token), passed via
 # --configfile config/config.local.yaml; never committed.
 config/config.local.yaml
