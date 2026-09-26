@@ -630,7 +630,10 @@ def _create_station_seeds(
 
 
 def _merge_buses_to_stations(
-    buses: gpd.GeoDataFrame, stations: gpd.GeoDataFrame, distance_crs: str, geo_crs: str
+    buses: gpd.GeoDataFrame,
+    stations: gpd.GeoDataFrame,
+    distance_crs: str,
+    geo_crs: str,
 ) -> gpd.GeoDataFrame:
     """Keep one bus per (station, voltage); offset multi-voltage stations for visual clarity."""
     buses_all = buses.copy().reset_index(drop=True)
@@ -991,6 +994,7 @@ def build_network(
     geo_crs: str,
     distance_crs: str,
     station_merge_radius_m: float = BUS_TOL,
+    converter_search_radius_m: float | None = None,
 ) -> tuple[
     gpd.GeoDataFrame,
     gpd.GeoDataFrame,
@@ -1111,7 +1115,6 @@ def build_network(
         stations,
         distance_crs=distance_crs,
         geo_crs=geo_crs,
-        max_station_voltage_ratio=max_station_voltage_ratio,
     )
 
     buses["geometry"] = gpd.points_from_xy(
@@ -1259,7 +1262,6 @@ if __name__ == "__main__":
         snakemake.params.crs["geo"],
         snakemake.params.crs["distance"],
         snakemake.params.station_merge_radius_m,
-        snakemake.params.max_station_voltage_ratio,
         snakemake.params.converter_search_radius_m,
     )
     logger.info(
