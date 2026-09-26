@@ -10,6 +10,7 @@ rule build_interactive_map:
         transformers=rules.build_network.output.transformers_geojson,
         stations_polygon=rules.build_network.output.stations_polygon,
         buses_polygon=rules.build_network.output.buses_polygon,
+        converters=rules.build_network.output.converters_geojson,
     output:
         map="<resources>/map.html",
     log:
