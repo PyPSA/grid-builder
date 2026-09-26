@@ -105,6 +105,12 @@
           "exclusiveMinimum": 0,
           "type": "number"
         },
+        "minimum_voltage_dc_kv": {
+          "default": 150.0,
+          "description": "Minimum nominal DC voltage retained from OSM, in kV. Separate from the AC floor because HVDC links commonly run below 220 kV, e.g. the 150 kV Estlink 1 and Gotland links; PyPSA-Eur uses 150 kV",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
         "frequency_hz": {
           "additionalProperties": false,
           "description": "AC/DC frequency in Hz, used to classify and normalise OSM ``frequency`` tags.",

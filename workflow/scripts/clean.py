@@ -1096,6 +1096,18 @@ def _region_min_voltage(
     kv = override if override is not None else network["minimum_voltage_kv"]
     return float(kv) * 1000  # kV -> V
 
+def _lowest_voltage_floor(network: dict[str, Any], regions: dict[str, Any]) -> float:
+    """The lowest voltage [V] any row could be kept at: global AC, any regional AC, or DC."""
+    regional = [
+        region.get("minimum_voltage_kv")
+        for region in regions.values()
+        if region.get("minimum_voltage_kv")
+    ]
+    return (
+        min([network["minimum_voltage_kv"], network["minimum_voltage_dc_kv"], *regional])
+        * 1000
+    )
+
 
 def _format_hz(value: float) -> str:
     """Render a Hz value the way OSM tags whole numbers: "50", not "50.0"."""
@@ -1153,7 +1165,7 @@ def clean(
     ``include_relations`` is off) is simply skipped.
     """
     crs = geo_crs
-    min_voltage_ac = network["minimum_voltage_kv"] * 1000  # V
+    lowest_floor = _lowest_voltage_floor(network, regions)  # V
     dc_hz = _format_hz(network["frequency_hz"]["DC"])
 
     # --- Substations -------------------------------------------------
@@ -1176,7 +1188,7 @@ def clean(
         df_substations["start_date"] = _clean_date(df_substations["start_date"])
 
         df_substations, list_voltages = _filter_by_voltage(
-            df_substations, min_voltage=min_voltage_ac
+            df_substations, min_voltage=lowest_floor
         )
         df_substations["frequency"] = _clean_frequency(df_substations["frequency"])
         df_substations["_ac_hz"] = df_substations["country"].map(
@@ -1243,7 +1255,7 @@ def clean(
             df_relation["start_date"] = _clean_date(df_relation["start_date"])
             df_relation["voltage"] = _clean_voltage(df_relation["voltage"])
             df_relation, list_voltages = _filter_by_voltage(
-                df_relation, min_voltage=min_voltage_ac
+                df_relation, min_voltage=lowest_floor
             )
             if not df_relation.empty:
                 df_relation["frequency"] = _clean_frequency(df_relation["frequency"])
@@ -1332,7 +1344,7 @@ def clean(
         )
         df_lines["start_date"] = _clean_date(df_lines["start_date"])
         df_lines, list_voltages = _filter_by_voltage(
-            df_lines, min_voltage=min_voltage_ac
+            df_lines, min_voltage=lowest_floor
         )
 
     if not df_lines.empty:

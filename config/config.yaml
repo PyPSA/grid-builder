@@ -20,6 +20,7 @@ retrieve:
 network:
   include_relations: true
   minimum_voltage_kv: 220.0
+  minimum_voltage_dc_kv: 150.0
   frequency_hz:
     AC: 50.0
     DC: 0.0
