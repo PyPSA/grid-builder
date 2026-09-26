@@ -21,6 +21,7 @@ floored to whole kV at the very end.
 import itertools
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -1324,6 +1325,9 @@ def clean(
         )
         df_substations["start_date"] = _clean_date(df_substations["start_date"])
 
+        df_substations["converter"] = (
+            _to_str(df_substations["substation"]).str.contains("converter")
+        )
         df_substations, list_voltages = _filter_by_voltage(
             df_substations, min_voltage=lowest_floor
         )
@@ -1458,6 +1462,7 @@ def clean(
                 df_relation = df_relation.rename(columns={"id": "line_id"})
                 df_relation["circuits"] = df_relation["circuits"].astype(int)
                 df_relation["voltage"] = df_relation["voltage"].astype(int)
+                # Set from the member ways' own power tag once they are read.
                 df_relation["underground"] = False
                 relation_lines = df_relation[LINE_COLUMNS].copy()
                 lines_frames.append(relation_lines)
