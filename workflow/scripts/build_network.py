@@ -140,6 +140,8 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
             "geometry",
             "line_id",
             "country",
+            "under_construction",
+            "start_date",
         ]
     ]
     line_geoms = line_data["geometry"].apply(_remove_loops_from_multiline)
@@ -172,6 +174,8 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
                 "bus_id": bus_id,
                 "contains": osm_ids,
                 "country": _merge_country_codes(group["country"]),
+                "under_construction": bool(group["under_construction"].all()),
+                "start_date": group["start_date"].min(),
             }
         )
 
@@ -193,6 +197,8 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
             "geometry",
             "contains",
             "country",
+            "under_construction",
+            "start_date",
         ]
     ]
 
@@ -349,6 +355,8 @@ def _create_merge_mapping(
             "geometry",
             "underground",
             "country",
+            "under_construction",
+            "start_date",
         ],
     ]
     lines_to_merge_dict = [
@@ -388,6 +396,14 @@ def _create_merge_mapping(
         country = _merge_country_codes(
             graph.nodes[node].get("country") for node in subgraph.nodes()
         )
+        under_construction = any(
+            bool(graph.nodes[node].get("under_construction"))
+            for node in subgraph.nodes()
+        )
+        start_date = pd.Series(
+            [graph.nodes[node].get("start_date") for node in subgraph.nodes()]
+        ).max()
+
         subgraph_data.append(
             {
                 "line_id": f"merged_{node_longest}+{len(contains_lines) - 1}",
@@ -396,6 +412,8 @@ def _create_merge_mapping(
                 "geometry": geometry,
                 "underground": underground,
                 "country": country,
+                "under_construction": under_construction,
+                "start_date": start_date,
                 "contains_lines": contains_lines,
                 "contains_buses": contains_buses,
             }
@@ -408,6 +426,8 @@ def _create_merge_mapping(
         "geometry",
         "underground",
         "country",
+        "under_construction",
+        "start_date",
         "contains_lines",
         "contains_buses",
     ]
@@ -438,7 +458,6 @@ def _merge_lines_over_virtual_buses(
     buses_merged = buses_merged[~buses_merged["bus_id"].isin(buses_to_remove)]
 
     lines_to_add = merged_lines_map.copy().reset_index(drop=True)
-    lines_to_add["under_construction"] = False
     lines_to_add["length"] = lines_to_add["geometry"].to_crs(distance_crs).length
     lines_to_add["contains"] = lines_to_add["contains_lines"]
     lines_to_add = lines_to_add[lines_merged.columns]
@@ -781,10 +800,9 @@ def build_network(
     ``station_id``) and ``buses_polygon`` (the substation polygons scoped to
     the buses that made it into the output, keyed by ``bus_id``).
     """
-    buses = substations.drop(columns=["country"])
     buses = _treat_under_construction(
-        buses, remove_under_construction, remove_after
-    ).drop(columns=["start_date"])
+        substations.copy(), remove_under_construction, remove_after
+    )
 
     buses_polygon = substations_polygon[
         substations_polygon["bus_id"].isin(buses["bus_id"])
@@ -811,9 +829,7 @@ def build_network(
             buses_polygon,
         )
 
-    lines = _treat_under_construction(
-        lines, remove_under_construction, remove_after
-    ).drop(columns=["start_date"])
+    lines = _treat_under_construction(lines, remove_under_construction, remove_after)
     lines = _merge_identical_lines(lines)
 
     buses["voltage"] = (np.floor(buses["voltage"] / 1000) * 1000).astype(
