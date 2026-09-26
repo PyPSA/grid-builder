@@ -104,7 +104,8 @@ def _empty_geodataframe(columns: list[str], crs: str) -> gpd.GeoDataFrame:
 
 
 def _non_geometry(columns: list[str]) -> list[str]:
-    """Drop the geometry column, which ``_empty_geodataframe`` supplies itself."""
+    """Drop the geometry column from ``columns`` maintaining structure 
+    otherwise"""
     return [column for column in columns if column != "geometry"]
 
 
