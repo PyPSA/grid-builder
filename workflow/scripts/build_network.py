@@ -1044,6 +1044,9 @@ def build_network(
         empty_transformers = _empty_geodataframe(
             _non_geometry(TRANSFORMER_COLUMNS), crs=geo_crs
         )
+        empty_converters = _empty_geodataframe(
+            _non_geometry(CONVERTER_COLUMNS), crs=geo_crs
+        )
         empty_stations_polygon = _empty_geodataframe(
             _non_geometry(STATION_POLYGON_COLUMNS), crs=geo_crs
         )
@@ -1051,6 +1054,7 @@ def build_network(
             empty_buses,
             empty_lines,
             empty_transformers,
+            empty_converters,
             empty_stations_polygon,
             buses_polygon,
         )
