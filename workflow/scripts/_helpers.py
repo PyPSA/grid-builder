@@ -26,8 +26,8 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-GEO_CRS = "EPSG:4326"
-BUS_TOL = 500  # metres; default station merge tolerance
+GEO_CRS: str = _CONFIG_DEFAULTS["crs"]["geo"]
+BUS_TOL: float = _CONFIG_DEFAULTS["network"]["station_merge_radius_m"]  # metres
 
 
 def configure_logging(log_path: str) -> None:

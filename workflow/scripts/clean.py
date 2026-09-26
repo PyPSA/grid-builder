@@ -390,7 +390,7 @@ def _drop_duplicate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
 
 
 def _filter_by_voltage(
-    df: pd.DataFrame, min_voltage: float = 220000
+    df: pd.DataFrame, min_voltage: float
 ) -> tuple[pd.DataFrame, Any]:
     """Keep only rows at or above ``min_voltage`` [V]; return the surviving voltage set too."""
     if df.empty:
@@ -1360,7 +1360,9 @@ def clean(
             df_way = df_way.drop(columns=["is_node"])
             df_way = _create_substations_geometry(df_way)
             df_way = _merge_touching_polygons(df_way, crs=crs)
-            df_way = _create_substations_poi(df_way)
+            df_way = _create_substations_poi(
+                df_way, tol=network["station_merge_radius_m"] / 2
+            )
 
         if not df_node.empty:
             df_node = df_node.drop(columns=["is_node"])
@@ -1525,7 +1527,9 @@ def clean(
         clean_lines = gpd.GeoDataFrame(df_lines_all, geometry="geometry", crs=crs)
         clean_lines = _remove_lines_within_substations(clean_lines, substation_polygons)
         if not clean_lines.empty and not substation_polygons.empty:
-            clean_lines = _extend_lines_to_substations(clean_lines, substation_polygons)
+            clean_lines = _extend_lines_to_substations(
+                clean_lines, substation_polygons, tol=network["station_merge_radius_m"] / 2
+            )
         clean_lines = gpd.GeoDataFrame(clean_lines, geometry="geometry", crs=crs)
     else:
         clean_lines = _empty_frame([c for c in LINE_COLUMNS if c != "geometry"], crs)

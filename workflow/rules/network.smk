@@ -100,6 +100,8 @@ rule build_network:
     threads: 1
     params:
         station_merge_radius_m=config["network"]["station_merge_radius_m"],
+        station_bus_offset_m=config["network"]["station_bus_offset_m"],
+        overpassing_lines_tolerance_m=config["network"]["overpassing_lines_tolerance_m"],
         converter_search_radius_m=config["network"]["converter_search_radius_m"],
         remove_under_construction=config["network"]["remove_under_construction"],
         remove_after=config["network"]["remove_after"],

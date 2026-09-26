@@ -12,6 +12,7 @@ retrieve:
     url: "https://overpass-api.de/api/interpreter"
     max_tries: 5
     timeout: 600
+    backoff_factor: 2.0
     user_agent:
       project_name: "grid-builder"
       email: ""
@@ -31,6 +32,8 @@ network:
   converter_search_radius_m: 50000.0
   dc_lines: keep
   station_merge_radius_m: 500.0
+  station_bus_offset_m: 15.0
+  overpassing_lines_tolerance_m: 1.0
   remove_under_construction: true
   remove_after: 2026-12-31
 

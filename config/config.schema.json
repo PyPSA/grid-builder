@@ -65,6 +65,12 @@
               "exclusiveMinimum": 0,
               "type": "integer"
             },
+            "backoff_factor": {
+              "default": 2.0,
+              "description": "Exponential backoff between retries, in seconds: the n-th retry waits backoff_factor * 2**(n-1)",
+              "minimum": 0,
+              "type": "number"
+            },
             "user_agent": {
               "additionalProperties": false,
               "description": "Identifies this tool to the Overpass API, per its fair-use policy.",
@@ -167,6 +173,18 @@
         "station_merge_radius_m": {
           "default": 500.0,
           "description": "Buffer radius used to merge nearby substations and line endpoints, in metres",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "station_bus_offset_m": {
+          "default": 15.0,
+          "description": "Distance, in metres, by which the buses of a multi-voltage station are spread around its centre so each level stays distinguishable on a map; 0 places them all at the centre",
+          "minimum": 0,
+          "type": "number"
+        },
+        "overpassing_lines_tolerance_m": {
+          "default": 1.0,
+          "description": "A line passing within this distance, in metres, of a bus it does not end at is split there and connected to it",
           "exclusiveMinimum": 0,
           "type": "number"
         },

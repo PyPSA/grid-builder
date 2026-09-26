@@ -109,6 +109,14 @@ class OverpassApiConfig(ConfigModel):
         5, description="Maximum number of attempts per query before giving up", ge=1
     )
     timeout: int = Field(600, description="Per-request timeout in seconds", gt=0)
+    backoff_factor: float = Field(
+        2.0,
+        description=(
+            "Exponential backoff between retries, in seconds: the n-th retry "
+            "waits backoff_factor * 2**(n-1)"
+        ),
+        ge=0,
+    )
     user_agent: OverpassUserAgentConfig = Field(default_factory=OverpassUserAgentConfig)
 
 
@@ -229,6 +237,23 @@ class NetworkConfig(ConfigModel):
             "the buffers are dissolved, so two elements merge once they are "
             "within twice this value of each other: the default of 500 merges "
             "substations up to 1 km apart"
+        ),
+        gt=0,
+    )
+    station_bus_offset_m: float = Field(
+        15.0,
+        description=(
+            "Distance, in metres, by which the buses of a multi-voltage station "
+            "are spread around its centre so each level stays distinguishable "
+            "on a map; 0 places them all at the centre"
+        ),
+        ge=0,
+    )
+    overpassing_lines_tolerance_m: float = Field(
+        1.0,
+        description=(
+            "A line passing within this distance, in metres, of a bus it does "
+            "not end at is split there and connected to it"
         ),
         gt=0,
     )

@@ -294,14 +294,14 @@ def _alpha_suffix(i: int) -> str:
 
 
 def split_overpassing_lines(
-    lines: gpd.GeoDataFrame, buses: gpd.GeoDataFrame, distance_crs: str, tol: float = 1
+    lines: gpd.GeoDataFrame, buses: gpd.GeoDataFrame, distance_crs: str, tol: float
 ) -> gpd.GeoDataFrame:
     """Split a line at any bus it geometrically overpasses without a shared OSM node."""
     lines = lines.copy()
     lines_to_add = []
     lines_to_split = []
 
-    high_voltage_lines = lines.query("voltage >= 220000")
+    high_voltage_lines = lines
     if high_voltage_lines.empty:
         return lines
 
@@ -634,6 +634,7 @@ def _merge_buses_to_stations(
     stations: gpd.GeoDataFrame,
     distance_crs: str,
     geo_crs: str,
+    offset_m: float,
 ) -> gpd.GeoDataFrame:
     """Keep one bus per (station, voltage); offset multi-voltage stations for visual clarity."""
     buses_all = buses.copy().reset_index(drop=True)
@@ -643,7 +644,6 @@ def _merge_buses_to_stations(
     buses_all = gpd.sjoin(buses_all, stations_all, how="left", predicate="within")
     buses_all = buses_all.drop_duplicates(subset=["station_id", "voltage", "dc"])
 
-    offset = 15  # metres
     geo_to_dist = Transformer.from_crs(geo_crs, distance_crs, always_xy=True)
     dist_to_geo = Transformer.from_crs(distance_crs, geo_crs, always_xy=True)
 
@@ -665,10 +665,10 @@ def _merge_buses_to_stations(
                 group["poi"].values[0].x, group["poi"].values[0].y
             )
             for idx, (voltage, dc) in enumerate(levels):
-                poi_x_offset = poi_x + offset * np.sin(
+                poi_x_offset = poi_x + offset_m * np.sin(
                     np.pi / 4 + 2 * np.pi * idx / len(levels)
                 ).round(4)
-                poi_y_offset = poi_y + offset * np.cos(
+                poi_y_offset = poi_y + offset_m * np.cos(
                     np.pi / 4 + 2 * np.pi * idx / len(levels)
                 ).round(4)
                 poi_offset = Point(dist_to_geo.transform(poi_x_offset, poi_y_offset))
@@ -993,7 +993,10 @@ def build_network(
     remove_after: str | None,
     geo_crs: str,
     distance_crs: str,
+    *,
     station_merge_radius_m: float = BUS_TOL,
+    station_bus_offset_m: float,
+    overpassing_lines_tolerance_m: float,
     converter_search_radius_m: float | None = None,
 ) -> tuple[
     gpd.GeoDataFrame,
@@ -1077,7 +1080,9 @@ def build_network(
     buses_line_endings = _add_line_endings(lines)
     buses = pd.concat([buses, buses_line_endings], ignore_index=True)
 
-    lines = split_overpassing_lines(lines, buses, distance_crs=distance_crs)
+    lines = split_overpassing_lines(
+        lines, buses, distance_crs=distance_crs, tol=overpassing_lines_tolerance_m
+    )
 
     bool_virtual = buses["bus_id"].str.startswith("virtual")
     buses = buses[~bool_virtual]
@@ -1115,6 +1120,7 @@ def build_network(
         stations,
         distance_crs=distance_crs,
         geo_crs=geo_crs,
+        offset_m=station_bus_offset_m,
     )
 
     buses["geometry"] = gpd.points_from_xy(
@@ -1261,8 +1267,10 @@ if __name__ == "__main__":
         snakemake.params.remove_after,
         snakemake.params.crs["geo"],
         snakemake.params.crs["distance"],
-        snakemake.params.station_merge_radius_m,
-        snakemake.params.converter_search_radius_m,
+        station_merge_radius_m=snakemake.params.station_merge_radius_m,
+        station_bus_offset_m=snakemake.params.station_bus_offset_m,
+        overpassing_lines_tolerance_m=snakemake.params.overpassing_lines_tolerance_m,
+        converter_search_radius_m=snakemake.params.converter_search_radius_m,
     )
     logger.info(
         "Built %d buses, %d lines (%d DC), %d transformers, and %d converters.",

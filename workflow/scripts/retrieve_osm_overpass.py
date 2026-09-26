@@ -112,13 +112,15 @@ def _normalise_node_geometry(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "elements": elements}
 
 
-def _session(max_tries: int, user_agent: str) -> requests.Session:
+def _session(
+    max_tries: int, backoff_factor: float, user_agent: str
+) -> requests.Session:
     """Build a ``requests`` session that retries transient errors with backoff."""
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
     retry = Retry(
         total=max_tries,
-        backoff_factor=2,
+        backoff_factor=backoff_factor,
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=False,  # type: ignore[arg-type]  # retry POST too; urllib3 stubs miss this value
         respect_retry_after_header=True,
@@ -134,6 +136,7 @@ def retrieve_from_overpass(
     include_relations: bool,
     url: str,
     max_tries: int,
+    backoff_factor: float,
     timeout: int,
     user_agent: str,
 ) -> dict[str, dict[str, Any]]:
@@ -149,7 +152,7 @@ def retrieve_from_overpass(
     if not include_relations:
         features.remove("routes_relation")
 
-    session = _session(max_tries, user_agent)
+    session = _session(max_tries, backoff_factor, user_agent)
     payloads: dict[str, dict[str, Any]] = {"routes_relation": {"elements": []}}
     for feature in features:
         logger.info("Querying Overpass for %s in %s", feature, iso_code)
@@ -194,6 +197,7 @@ if __name__ == "__main__":
             include_relations,
             url=overpass_api["url"],
             max_tries=overpass_api["max_tries"],
+            backoff_factor=overpass_api["backoff_factor"],
             timeout=overpass_api["timeout"],
             user_agent=user_agent,
         )
