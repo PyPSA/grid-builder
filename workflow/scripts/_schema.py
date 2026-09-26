@@ -289,6 +289,7 @@ class CrsConfig(ConfigModel):
         "EPSG:4326", description="Geographic CRS used to store and exchange coordinates"
     )
     distance: str = Field(
+        # TODO Mind European-centric hardcoding
         "EPSG:3035",
         description=(
             "Equal-area/equal-distance CRS used for buffering and length "
