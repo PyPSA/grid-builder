@@ -722,6 +722,8 @@ def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
     df_lines = df_lines.rename(columns={"id": "line_id", "power": "tag_type"})
     df_lines["underground"] = df_lines["tag_type"] == "cable"
     df_lines["contains"] = df_lines["line_id"].apply(lambda x: [x.split("-")[0]])
+    # Capacity is tagged on HVDC relations, not on their member ways.
+    df_lines["p_nom_mw"] = np.nan
     df_lines = df_lines[LINE_COLUMNS]
     df_lines["circuits"] = df_lines["circuits"].astype(int)
     df_lines["voltage"] = df_lines["voltage"].astype(int)
