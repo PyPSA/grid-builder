@@ -2,34 +2,56 @@
 #
 # SPDX-License-Identifier: MIT
 
+from pathlib import Path
+
+
+def _custom_files(feature):
+    """Custom raw files for one feature, cleaned alongside the retrieved ones.
+
+    Selected by filename, the same ``{country}_{feature}.json`` convention
+    retrieval writes and ``clean`` reads the country back out of, so a
+    custom file needs no special handling downstream.
+    """
+    return [
+        path
+        for path in config["custom_data"]["files"]
+        if Path(path).stem.endswith(f"_{feature}")
+    ]
+
 
 rule clean:
     input:
         lines_way=expand(
             "<resources>/retrieve/{country}_lines_way.json",
             country=config["countries"],
-        ),
+        )
+        + _custom_files("lines_way"),
         cables_way=expand(
             "<resources>/retrieve/{country}_cables_way.json",
             country=config["countries"],
-        ),
+        )
+        + _custom_files("cables_way"),
         substations_way=expand(
             "<resources>/retrieve/{country}_substations_way.json",
             country=config["countries"],
-        ),
+        )
+        + _custom_files("substations_way"),
         substations_node=expand(
             "<resources>/retrieve/{country}_substations_node.json",
             country=config["countries"],
-        ),
+        )
+        + _custom_files("substations_node"),
         substations_relation=expand(
             "<resources>/retrieve/{country}_substations_relation.json",
             country=config["countries"],
-        ),
+        )
+        + _custom_files("substations_relation"),
         routes_relation=(
             expand(
                 "<resources>/retrieve/{country}_routes_relation.json",
                 country=config["countries"],
             )
+            + _custom_files("routes_relation")
             if config["network"]["include_relations"]
             else []
         ),

@@ -179,6 +179,43 @@ class NetworkConfig(ConfigModel):
     )
 
 
+class CustomDataConfig(ConfigModel):
+    """Non-OSM elements to clean alongside the retrieved ones.
+
+    OSM's high-voltage coverage is uneven, and today the only way to correct
+    a missing or mistagged asset is to edit OSM upstream and wait for the
+    next extract, which also makes a study hard to reproduce. Files listed
+    here are read by ``clean`` exactly like retrieved ones, because both
+    retrieval backends already write the same raw shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Paths to extra raw files in the same shape retrieval writes, "
+            "named ``{country}_{feature}.json`` so ``clean`` picks up the "
+            "country and feature from the filename. Their elements are added "
+            "to the retrieved ones"
+        ),
+    )
+
+    @field_validator("files")
+    @classmethod
+    def validate_file_names(cls, v: list[str]) -> list[str]:
+        """Reject names ``clean`` could not map back to a country and feature."""
+        for path in v:
+            stem = Path(path).stem
+            if not any(stem.endswith(f"_{feature}") for feature in OSM_FEATURES):
+                raise ValueError(
+                    f"Custom data file {path!r} must be named "
+                    f"'{{country}}_{{feature}}.json', where feature is one of "
+                    f"{', '.join(OSM_FEATURES)}."
+                )
+        return v
+
+
 class SimplifyGeometriesConfig(ConfigModel):
     """Douglas-Peucker simplification tolerances for the interactive map."""
 
@@ -290,6 +327,10 @@ class ConfigSchema(ConfigModel):
     regions: dict[str, RegionalNetworkConfig] = Field(
         default_factory=dict,
         description="Country-specific network overrides loaded from config/regions",
+    )
+    custom_data: CustomDataConfig = Field(
+        default_factory=CustomDataConfig,
+        description="Non-OSM raw files cleaned alongside the retrieved ones",
     )
     interactive_map: InteractiveMapConfig = Field(
         default_factory=InteractiveMapConfig,

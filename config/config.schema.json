@@ -209,6 +209,19 @@
       "description": "Country-specific network overrides loaded from config/regions",
       "type": "object"
     },
+    "custom_data": {
+      "additionalProperties": false,
+      "description": "Non-OSM elements to clean alongside the retrieved ones.\n\nOSM's high-voltage coverage is uneven, and today the only way to correct\na missing or mistagged asset is to edit OSM upstream and wait for the\nnext extract, which also makes a study hard to reproduce. Files listed\nhere are read by ``clean`` exactly like retrieved ones, because both\nretrieval backends already write the same raw shape.",
+      "properties": {
+        "files": {
+          "description": "Paths to extra raw files in the same shape retrieval writes, named ``{country}_{feature}.json`` so ``clean`` picks up the country and feature from the filename. Their elements are added to the retrieved ones",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      }
+    },
     "interactive_map": {
       "additionalProperties": false,
       "description": "Geometry simplification and coordinate rounding for build_interactive_map.py.",

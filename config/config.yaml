@@ -29,6 +29,9 @@ network:
 
 regions: {}
 
+custom_data:
+  files: []
+
 interactive_map:
   coordinate_decimals: 5
   simplify_geometries:
