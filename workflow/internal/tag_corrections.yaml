@@ -124,6 +124,9 @@ frequency:
   - replace: ["?", ""]
   - replace: ["hz", ""]
   - replace: [" ", ""]
+  # earth: repl_freq. Two traction entries run together; left alone this
+  # parses as no number at all instead of two 16.7 Hz circuits.
+  - exact: ["50;50;16.716.7", "50;50;16.7;16.7"]
 
 date:
   - lower: true
