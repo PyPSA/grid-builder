@@ -16,6 +16,8 @@ A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
 
+Buses and lines carry the country they belong to, along with their construction status and planned start date. Country information is essential to resolve assign a correct line types which is strongly regional-specific.
+
 This module follows the Modelblocks conventions (https://www.modelblocks.org). For more information, consult the [integration example](./tests/integration/Snakefile) and the `snakemake` [modularisation documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/modularization.html).
 
 ## Overview

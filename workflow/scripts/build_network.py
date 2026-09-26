@@ -118,7 +118,14 @@ def _remove_loops_from_multiline(multiline: Any) -> Any:
 
 def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
     """Create deterministic virtual buses at each unique (voltage, endpoint) combination."""
-    line_data = lines[["voltage", "geometry", "line_id"]]
+    line_data = lines[
+        [
+            "voltage",
+            "geometry",
+            "line_id",
+            "country",
+        ]
+    ]
     line_geoms = line_data["geometry"].apply(_remove_loops_from_multiline)
 
     endpoints0 = line_data.assign(
@@ -144,7 +151,13 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
         candidates = endpoint_names[numeric_parts == min_numeric]
         bus_id = candidates.sort_values().iloc[0]
         osm_ids = list(set(group["osm_id"].tolist()))
-        return pd.Series({"bus_id": bus_id, "contains": osm_ids})
+        return pd.Series(
+            {
+                "bus_id": bus_id,
+                "contains": osm_ids,
+                "country": _merge_country_codes(group["country"]),
+            }
+        )
 
     endpoints = (
         endpoints.groupby(["voltage", "geometry"])
@@ -157,7 +170,15 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
         + "-"
         + (endpoints["voltage"] / 1000).astype(int).astype(str)
     )
-    return endpoints[["bus_id", "voltage", "geometry", "contains"]]
+    return endpoints[
+        [
+            "bus_id",
+            "voltage",
+            "geometry",
+            "contains",
+            "country",
+        ]
+    ]
 
 
 def _split_linestring_by_point(
@@ -304,7 +325,15 @@ def _create_merge_mapping(
     unique_lines = pd.Series(itertools.chain(*buses_to_remove["line_id"])).unique()
     lines_to_merge = lines.loc[
         lines["line_id"].isin(unique_lines),
-        ["line_id", "voltage", "circuits", "length", "geometry", "underground"],
+        [
+            "line_id",
+            "voltage",
+            "circuits",
+            "length",
+            "geometry",
+            "underground",
+            "country",
+        ],
     ]
     lines_to_merge_dict = [
         (node, row.to_dict())
@@ -347,6 +376,7 @@ def _create_merge_mapping(
                 "voltage": voltage,
                 "geometry": geometry,
                 "underground": underground,
+                "country": country,
                 "contains_lines": contains_lines,
                 "contains_buses": contains_buses,
             }
@@ -358,6 +388,7 @@ def _create_merge_mapping(
         "voltage",
         "geometry",
         "underground",
+        "country",
         "contains_lines",
         "contains_buses",
     ]
