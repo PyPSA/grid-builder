@@ -165,6 +165,26 @@ class NetworkConfig(ConfigModel):
         default_factory=FrequencyConfig,
         description="AC/DC frequency in Hz; override per country in config/regions for e.g. 60 Hz grids",
     )
+    accepted_ac_frequencies_hz: list[PositiveFloat] = Field(
+        [50.0, 60.0],
+        description=(
+            "Frequency tag values treated as public-grid AC. A tagged value "
+            "within frequency_tolerance_hz of one of these is kept and "
+            "normalised to the region's AC frequency, since 50 Hz in a 60 Hz "
+            "country is far likelier a tagging slip than a separate grid. Any "
+            "other non-DC value is dropped: it marks a separate system such as "
+            "16.7 Hz railway traction, which must not be read as mains AC"
+        ),
+        min_length=1,
+    )
+    frequency_tolerance_hz: float = Field(
+        0.1,
+        description=(
+            "Tolerance for matching a frequency tag, so that 50.0 matches 50 "
+            "and 0.0 matches the DC marker"
+        ),
+        ge=0,
+    )
     station_merge_radius_m: float = Field(
         500.0,
         description="Buffer radius used to merge nearby substations and line endpoints, in metres",

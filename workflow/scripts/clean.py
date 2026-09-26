@@ -41,6 +41,9 @@ _TAG_CORRECTIONS: dict[str, list[dict[str, Any]]] = load_internal_yaml(
     "tag_corrections.yaml"
 )
 
+# Country values whose AC frequency overrides conflict, tracked so the
+# warning in _region_ac_hz is logged once per border rather than once per row.
+_AC_FREQUENCY_CONFLICTS: set[str] = set()
 
 def _create_linestring(row: pd.Series) -> LineString:
     """Build a LineString from a raw OSM geometry list of ``{lon, lat}`` points."""
@@ -117,6 +120,91 @@ def _clean_frequency(column: pd.Series) -> pd.Series:
     """Normalise a raw ``frequency`` tag column to semicolon-separated Hz values."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["frequency"])
     return column.str.replace(r"[^0-9;.]", "", regex=True)
+
+def _frequency_kind(
+    value: str, dc_hz: float, accepted_ac_hz: list[float], tolerance_hz: float
+) -> str:
+    """Classify one cleaned frequency value as ``"ac"``, ``"dc"`` or ``"other"``.
+
+    Comparison is numeric with a tolerance, so "50.0" reads as AC and "0.0" as
+    DC where a string comparison would miss both. An untagged value counts as
+    AC, as in PyPSA-Earth, which fills a missing frequency with the mains
+    default. A value that does not parse is ``"other"``, again as in
+    PyPSA-Earth, which coerces it to NaN and drops it.
+    """
+    if value == "":
+        return "ac"
+    try:
+        hz = float(value)
+    except ValueError:
+        return "other"
+    if abs(hz - dc_hz) <= tolerance_hz:
+        return "dc"
+    if any(abs(hz - ac) <= tolerance_hz for ac in accepted_ac_hz):
+        return "ac"
+    return "other"
+
+
+def _normalise_frequency(
+    df: pd.DataFrame,
+    dc_hz: str,
+    accepted_ac_hz: list[float],
+    tolerance_hz: float,
+    label: str,
+) -> pd.DataFrame:
+    """Drop rows on a non-grid frequency and normalise the rest to AC or DC.
+
+    Each row must already hold a single frequency value and a per-row
+    ``_ac_hz``. AC rows are rewritten to their region's AC frequency and DC
+    rows to the DC marker, so later code can compare plain strings. Rows on
+    any other frequency belong to a separate system, typically 16.7 Hz or
+    25 Hz railway traction; rewriting them to mains AC, as a blanket
+    "invalid means AC" rule would, splices a railway into the public grid.
+    """
+    if df.empty:
+        return df
+    dc_value = float(dc_hz)
+    kind = df.apply(
+        lambda row: _frequency_kind(
+            row["frequency"],
+            dc_value,
+            [*accepted_ac_hz, float(row["_ac_hz"])],
+            tolerance_hz,
+        ),
+        axis=1,
+    )
+    other = kind == "other"
+    if other.any():
+        logger.info(
+            "Dropping %d %s on a non-grid frequency: %s",
+            int(other.sum()),
+            label,
+            ", ".join(sorted(df.loc[other, "frequency"].unique())[:10]),
+        )
+    df = df[~other].copy()
+    kind = kind[~other]
+    df.loc[kind == "ac", "frequency"] = df.loc[kind == "ac", "_ac_hz"]
+    df.loc[kind == "dc", "frequency"] = dc_hz
+    return df
+
+
+def _frequency_for_split(row: pd.Series) -> str:
+    """Pick the frequency belonging to this row's voltage split.
+
+    OSM lists one frequency per circuit in the same order as voltage, e.g.
+    voltage=380000;110000 with frequency=50;16.7 for a mains circuit sharing
+    towers with a railway traction circuit. Only voltage is split into rows,
+    so without this each split would carry the whole list. A shorter list is
+    padded with its last value, PyPSA-Earth's rule; a longer one is
+    truncated to the voltages present.
+    """
+    values = row["frequency"].split(";")
+    if len(values) == 1:
+        return values[0]
+    position = (
+        int(row["id"].rsplit("-", 1)[1]) - 1 if row["split_elements"] > 1 else 0
+    )
+    return values[min(position, len(values) - 1)]
 
 
 def _clean_date(column: pd.Series) -> pd.Series:
@@ -225,6 +313,7 @@ def _filter_by_voltage(
 
 def _clean_substations(
     df_substations: pd.DataFrame, list_voltages: Any, dc_hz: str
+    accepted_ac_hz: list[float],
 ) -> pd.DataFrame:
     """Split multi-voltage substation rows and normalise each split's frequency.
 
@@ -257,17 +346,16 @@ def _clean_substations(
     )
 
     df_substations = _split_cells(df_substations, cols=["frequency"])
-    bool_invalid_frequency = df_substations.apply(
-        lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
+    return _normalise_frequency(
+        df_substations, dc_hz, accepted_ac_hz, tolerance_hz, "substation elements"
     )
-    df_substations.loc[bool_invalid_frequency, "frequency"] = df_substations.loc[
-        bool_invalid_frequency, "_ac_hz"
-    ]
-    return df_substations
 
 
 def _clean_lines(
-    df_lines: pd.DataFrame, list_voltages: Any, dc_hz: str
+    df_lines: pd.DataFrame,
+    list_voltages: Any,
+    accepted_ac_hz: list[float],
+    tolerance_hz: float,
 ) -> pd.DataFrame:
     """Clean lines/cables heuristically, deriving circuits from whatever tags exist.
 
@@ -285,6 +373,15 @@ def _clean_lines(
         _check_voltage, list_voltages=list_voltages
     )
     df_lines = df_lines[bool_voltages]
+    if df_lines.empty:
+        return df_lines
+
+    df_lines["frequency"] = df_lines.apply(_frequency_for_split, axis=1)
+    df_lines = _normalise_frequency(
+        df_lines, dc_hz, accepted_ac_hz, tolerance_hz, "line elements"
+    )
+    if df_lines.empty:
+        return df_lines
 
     bool_ac = df_lines["frequency"] != dc_hz
     bool_dc = ~bool_ac
@@ -925,6 +1022,21 @@ def _import_substations(
 # ---------------------------------------------------------------------------
 
 
+def _split_country_codes(country: Any) -> list[str]:
+    """Split a country value into individual codes.
+
+    ``_drop_duplicate_lines`` joins the codes of a cross-border element it
+    saw in more than one country's retrieval, so a single value can read
+    ``"BE;NL"``. Looking that up as one key silently misses every regional
+    override, which is why both resolvers below go through here first.
+    """
+    # pd.isna covers None, float nan and pd.NA alike; a bare float check
+    # would let pd.NA through and stringify it into a bogus "<NA>" code.
+    if country is None or pd.isna(country):
+        return []
+    return [code for code in str(country).split(";") if code]
+
+
 def _region_min_voltage(
     country: str, network: dict[str, Any], regions: dict[str, Any]
 ) -> float:
@@ -947,11 +1059,32 @@ def _region_ac_hz(
     DC has no equivalent per-country override: OSM always tags DC as
     ``frequency=0`` worldwide, so unlike AC (50 Hz vs 60 Hz by continent)
     it isn't something a region should need to change.
+
+    A cross-border element names more than one country. An AC line only ever
+    runs at one frequency, so disagreeing neighbours mean either a config
+    error or a tie that isn't a plain AC line; the lowest value is taken so
+    the result is deterministic, and the conflict is logged once.
     """
-    frequency_override = regions.get(country, {}).get("frequency_hz") or {}
-    override = frequency_override.get("AC")
-    hz = override if override is not None else network["frequency_hz"]["AC"]
-    return _format_hz(hz)
+    values = []
+    for code in _split_country_codes(country):
+        override = (regions.get(code, {}).get("frequency_hz") or {}).get("AC")
+        values.append(
+            override if override is not None else network["frequency_hz"]["AC"]
+        )
+    if not values:
+        values = [network["frequency_hz"]["AC"]]
+
+    unique = sorted(set(values))
+    if len(unique) > 1 and country not in _AC_FREQUENCY_CONFLICTS:
+        _AC_FREQUENCY_CONFLICTS.add(country)
+        logger.warning(
+            "Countries %s disagree on AC frequency (%s Hz); using %s Hz for the "
+            "elements they share.",
+            _split_country_codes(country),
+            unique,
+            unique[0],
+        )
+    return _format_hz(unique[0])
 
 
 def clean(
@@ -1159,15 +1292,7 @@ def clean(
         df_lines["_ac_hz"] = df_lines["country"].map(
             lambda c: _region_ac_hz(c, network, regions)
         )
-        df_lines = _clean_lines(df_lines, list_voltages, dc_hz)
-
-        len_before = len(df_lines)
-        df_lines = df_lines[df_lines["frequency"] != dc_hz]
-        logger.info(
-            "Dropped %d DC lines. Keeping %d AC lines.",
-            len_before - len(df_lines),
-            len(df_lines),
-        )
+        df_lines = _clean_lines(df_lines, list_voltages, dc_hz, **frequency_options)
 
     if not df_lines.empty:
         row_min = df_lines["country"].map(
