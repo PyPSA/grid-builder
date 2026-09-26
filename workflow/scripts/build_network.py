@@ -36,12 +36,57 @@ logger = logging.getLogger(__name__)
 
 COORD_PRECISION = 8
 
+# Output schemas shared by the populated and the empty-input paths so both
+# always produce the same columns.
+BUS_COLUMNS = [
+    "bus_id",
+    "station_id",
+    "voltage_kv",
+    "country",
+    "under_construction",
+    "start_date",
+    "osm_ids",
+    "geometry",
+]
+
+LINE_COLUMNS = [
+    "line_id",
+    "bus0",
+    "bus1",
+    "voltage_kv",
+    "circuits",
+    "length_m",
+    "underground",
+    "country",
+    "under_construction",
+    "start_date",
+    "osm_ids",
+    "geometry",
+]
+
+TRANSFORMER_COLUMNS = [
+    "transformer_id",
+    "station_id",
+    "bus0",
+    "bus1",
+    "voltage_bus0_kv",
+    "voltage_bus1_kv",
+    "geometry",
+]
+
+STATION_POLYGON_COLUMNS = ["station_id", "geometry"]
+
 
 def _empty_geodataframe(columns: list[str], crs: str) -> gpd.GeoDataFrame:
     """Build an empty GeoDataFrame with the given non-geometry ``columns``."""
     return gpd.GeoDataFrame(
         {column: [] for column in columns}, geometry=gpd.GeoSeries([], crs=crs), crs=crs
     )
+
+
+def _non_geometry(columns: list[str]) -> list[str]:
+    """Drop the geometry column, which ``_empty_geodataframe`` supplies itself."""
+    return [column for column in columns if column != "geometry"]
 
 
 def _merge_country_codes(values: Any) -> str:
@@ -813,13 +858,15 @@ def build_network(
         buses_polygon = buses_polygon.drop(columns=["voltage"])
 
     if lines.empty:
-        empty_buses = _empty_geodataframe(["bus_id", "geometry"], crs=geo_crs)
-        empty_lines = _empty_geodataframe(["line_id", "geometry"], crs=geo_crs)
+        # Same columns as the populated path, so a consumer reading an
+        # empty result doesn't hit a different schema.
+        empty_buses = _empty_geodataframe(_non_geometry(BUS_COLUMNS), crs=geo_crs)
+        empty_lines = _empty_geodataframe(_non_geometry(LINE_COLUMNS), crs=geo_crs)
         empty_transformers = _empty_geodataframe(
-            ["transformer_id", "geometry"], crs=geo_crs
+            _non_geometry(TRANSFORMER_COLUMNS), crs=geo_crs
         )
         empty_stations_polygon = _empty_geodataframe(
-            ["station_id", "geometry"], crs=geo_crs
+            _non_geometry(STATION_POLYGON_COLUMNS), crs=geo_crs
         )
         return (
             empty_buses,
@@ -929,21 +976,7 @@ def build_network(
     lines_out["osm_ids"] = lines_out["contains_lines"].apply(_contains_to_osm_ids)
     lines_out["length_m"] = lines_out["length"].round(2)
     lines_out = gpd.GeoDataFrame(
-        lines_out[
-            [
-                "line_id",
-                "bus0",
-                "bus1",
-                "voltage_kv",
-                "circuits",
-                "length_m",
-                "underground",
-                "osm_ids",
-                "geometry",
-            ]
-        ],
-        geometry="geometry",
-        crs=geo_crs,
+        lines_out[LINE_COLUMNS], geometry="geometry", crs=geo_crs
     )
 
     transformers_out = transformers.copy()
@@ -955,34 +988,14 @@ def build_network(
             transformers_out["voltage_bus1"] / 1000
         ).astype(int)
         transformers_out = gpd.GeoDataFrame(
-            transformers_out[
-                [
-                    "transformer_id",
-                    "station_id",
-                    "bus0",
-                    "bus1",
-                    "voltage_bus0_kv",
-                    "voltage_bus1_kv",
-                    "geometry",
-                ]
-            ],
-            geometry="geometry",
-            crs=geo_crs,
+            transformers_out[TRANSFORMER_COLUMNS], geometry="geometry", crs=geo_crs
         )
     else:
         transformers_out = _empty_geodataframe(
-            [
-                "transformer_id",
-                "station_id",
-                "bus0",
-                "bus1",
-                "voltage_bus0_kv",
-                "voltage_bus1_kv",
-            ],
-            crs=geo_crs,
+            _non_geometry(TRANSFORMER_COLUMNS), crs=geo_crs
         )
 
-    stations_polygon_out = stations[["station_id", "geometry"]].copy()
+    stations_polygon_out = stations[STATION_POLYGON_COLUMNS].copy()
     buses_polygon_out = buses_polygon.copy()
 
     return (
