@@ -1469,6 +1469,15 @@ def clean(
     )
     if not df_lines.empty:
         df_lines = _drop_duplicate_lines(df_lines)
+        # A relation is assumed to be underground when all its member ways 
+        # are cables (originates from PyPSA-Eur)
+        # TODO: check applicability on the global scale
+        if lines_frames:
+            way_power = df_lines.set_index("id")["power"]
+            relation_lines["underground"] = relation_lines["contains"].apply(
+                lambda ways: set(way_power.reindex(ways).dropna()) == {"cable"}
+            )
+            lines_frames[0] = relation_lines
         len_before = len(df_lines)
         df_lines = df_lines[~df_lines["id"].isin(ways_to_replace)]
         logger.info(
