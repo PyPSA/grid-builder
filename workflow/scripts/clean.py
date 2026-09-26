@@ -281,6 +281,26 @@ def _clean_date(column: pd.Series) -> pd.Series:
     return pd.to_datetime(column, errors="coerce", format="mixed")
 
 
+def _clean_rating(column: pd.Series) -> pd.Series:
+    """Parse a ``rating`` tag into MW, summing ``;``-separated entries, as PyPSA-Eur does.
+
+    HVDC relations carry their transfer capacity here, e.g. "1000 MW". A
+    value in GW is scaled to MW. Anything that yields no number is NaN.
+    """
+
+    def parse(value: str) -> float:
+        value = value.strip().lower()
+        scale = 1000.0 if "gw" in value else 1.0
+        numbers = [
+            float(part)
+            for part in re.sub(r"[^0-9.;]", "", value).split(";")
+            if re.fullmatch(r"\d+(\.\d+)?", part)
+        ]
+        return sum(numbers) * scale if numbers else np.nan
+
+    return _to_str(column).map(parse).astype(float)
+
+
 def _split_cells(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFrame:
     """Split semicolon-separated cells into new, identically-tagged rows."""
     if cols is None:
@@ -878,6 +898,46 @@ def _create_line(row: pd.Series) -> tuple[Any, list[str]]:
     return line, members
 
 
+# Relation member roles that carry the conductor itself, as opposed to the
+# terminal substations and electrodes an HVDC relation also lists.
+_LINK_MEMBER_ROLES = ("line", "cable", "section")
+
+
+def _create_single_link(row: pd.Series) -> tuple[Any, list[str]]:
+    """One LineString for an HVDC relation, following PyPSA-Eur's ``_create_single_link``.
+
+    A bipole relation lists each pole as its own member, so merging all
+    members, as ``_create_line`` does for AC, yields parallel parts that
+    never form a single line, and the relation would be discarded. Instead,
+    keep only conductor members, keep one member per pair of endpoints so
+    parallel poles collapse to one, merge, and keep the longest connected
+    part. Every conductor member is still reported, so all of the poles'
+    ways are replaced by the link rather than surviving beside it.
+    """
+    df = pd.json_normalize(row["members"])
+    if "geometry" not in df.columns or "role" not in df.columns:
+        return linemerge([]), []
+    df = df[df["role"].isin(_LINK_MEMBER_ROLES)].dropna(subset=["geometry"])
+    if df.empty:
+        return linemerge([]), []
+    df["ref"] = df["ref"].astype(str)
+    members = ("way/" + df["ref"]).tolist()
+    df["geometry"] = df.apply(_create_linestring, axis=1)
+    df["length"] = df["geometry"].apply(lambda line: line.length)
+    df["endpoints"] = df["geometry"].apply(
+        lambda line: tuple(
+            round(value, 3)
+            for point in sorted([line.coords[0], line.coords[-1]])
+            for value in point
+        )
+    )
+    shortest = df.loc[df.groupby("endpoints")["length"].idxmin()]
+    link = linemerge(shortest["geometry"].tolist())
+    if isinstance(link, MultiLineString):
+        link = max(link.geoms, key=lambda part: part.length)
+    return link, members
+
+
 _LINE_TAG_COLUMNS = [
     "power",
     "cables",
@@ -904,6 +964,7 @@ _RELATION_TAG_COLUMNS = [
     "cables",
     "frequency",
     "voltage",
+    "rating",
     "construction",
     "construction:power",
     "start_date",
@@ -1281,14 +1342,28 @@ def clean(
             )
             if not df_relation.empty:
                 df_relation["frequency"] = _clean_frequency(df_relation["frequency"])
-                df_relation = df_relation[df_relation["frequency"] != dc_hz]
                 df_relation["_ac_hz"] = df_relation["country"].map(
                     lambda c: _region_ac_hz(c, network, regions)
                 )
-                df_relation["frequency"] = df_relation["_ac_hz"]
                 df_relation["circuits"] = _clean_circuits(df_relation["circuits"])
                 df_relation["cables"] = _clean_cables(df_relation["cables"])
-                df_relation = _clean_lines(df_relation, list_voltages, dc_hz)
+                df_relation = _clean_lines(
+                    df_relation, list_voltages, dc_hz, **frequency_options
+                )
+                df_relation = df_relation[
+                    _above_voltage_floor(df_relation, network, regions, dc_hz)
+                ]
+                # PyPSA-Eur's relationship concept: an HVDC relation is one
+                # link, whatever its poles and sections, rated by its tag.
+                # Decided before dc_lines is applied, since force_ac relabels
+                # the frequency but the relation is still physically a bipole.
+                df_relation["_hvdc"] = df_relation["frequency"] == dc_hz
+                df_relation["p_nom_mw"] = _clean_rating(df_relation["rating"]).where(
+                    df_relation["_hvdc"]
+                )
+                df_relation = _apply_dc_lines_mode(
+                    df_relation, dc_lines, dc_hz, "route relations"
+                )
                 df_relation = df_relation.drop(
                     columns=[
                         "voltage_original",
@@ -1298,13 +1373,13 @@ def clean(
                     ]
                 )
 
-                row_min = df_relation["country"].map(
-                    lambda c: _region_min_voltage(c, network, regions)
-                )
-                df_relation = df_relation[df_relation["voltage"].astype(int) >= row_min]
-
             if not df_relation.empty:
-                components = df_relation.apply(_create_line, axis=1)
+                components = df_relation.apply(
+                    lambda row: (
+                        _create_single_link(row) if row["_hvdc"] else _create_line(row)
+                    ),
+                    axis=1,
+                )
                 df_relation["geometry"] = components.apply(lambda x: x[0])
                 df_relation["contains"] = components.apply(lambda x: x[1])
 
@@ -1327,21 +1402,8 @@ def clean(
                 df_relation["circuits"] = df_relation["circuits"].astype(int)
                 df_relation["voltage"] = df_relation["voltage"].astype(int)
                 df_relation["underground"] = False
-                lines_frames.append(
-                    df_relation[
-                        [
-                            "line_id",
-                            "circuits",
-                            "voltage",
-                            "country",
-                            "underground",
-                            "under_construction",
-                            "start_date",
-                            "geometry",
-                            "contains",
-                        ]
-                    ]
-                )
+                relation_lines = df_relation[LINE_COLUMNS].copy()
+                lines_frames.append(relation_lines)
 
     # --- AC lines/cables via individual ways ---------------------------
     logger.info("Importing lines and cables.")
