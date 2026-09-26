@@ -44,6 +44,18 @@ def _empty_geodataframe(columns: list[str], crs: str) -> gpd.GeoDataFrame:
     )
 
 
+def _merge_country_codes(values: Any) -> str:
+    """Clean-up country codes for multy-country entries which is essential
+    for cross-border elements.
+    """
+    co_codes: set[str] = set()
+    for value in values:
+        if value is None or pd.isna(value):
+            continue
+        co_codes.update(str(value).split(";"))
+    return ";".join(sorted(code for code in co_codes if code))
+
+
 def _treat_under_construction(
     df: pd.DataFrame, remove_under_construction: bool, remove_after: str | None
 ) -> pd.DataFrame:
@@ -369,6 +381,9 @@ def _create_merge_mapping(
         if not isinstance(geometry, LineString) or geometry.is_closed:
             continue
 
+        country = _merge_country_codes(
+            graph.nodes[node].get("country") for node in subgraph.nodes()
+        )
         subgraph_data.append(
             {
                 "line_id": f"merged_{node_longest}+{len(contains_lines) - 1}",
