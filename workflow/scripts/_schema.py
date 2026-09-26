@@ -12,7 +12,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from earth_osm.regions import get_all_valid_codes, get_region_tuple
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    ValidationError,
+    field_validator,
+)
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -184,6 +191,26 @@ class NetworkConfig(ConfigModel):
             "and 0.0 matches the DC marker"
         ),
         ge=0,
+    )
+    converter_search_radius_m: float = Field(
+        50000.0,
+        description=(
+            "How far, in metres, a station tagged substation=converter looks "
+            "for an AC station when it has DC buses but no AC bus of its own. "
+            "Converter halls often sit apart from the AC substation they feed, "
+            "further than station_merge_radius_m merges; PyPSA-Eur uses 50 km"
+        ),
+        gt=0,
+    )
+    dc_lines: Literal["keep", "drop", "force_ac"] = Field(
+        "keep",
+        description=(
+            "Treatment of DC lines and cables. keep carries them as dc=true, "
+            "gives them their own buses and adds converters where a station "
+            "holds both AC and DC buses. drop removes them. force_ac keeps "
+            "them but relabels them AC, for downstream models that cannot "
+            "handle DC"
+        ),
     )
     station_merge_radius_m: float = Field(
         500.0,
