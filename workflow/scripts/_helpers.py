@@ -26,9 +26,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-GEO_CRS: str = _CONFIG_DEFAULTS["crs"]["geo"]
-BUS_TOL: float = _CONFIG_DEFAULTS["network"]["station_merge_radius_m"]  # metres
-
 
 def configure_logging(log_path: str) -> None:
     """Send rule and dependency logging to the Snakemake log file."""
@@ -57,6 +54,19 @@ def load_internal_yaml(filename: str) -> Any:
     path = Path(__file__).resolve().parent.parent / "internal" / filename
     with open(path) as handle:
         return yaml.safe_load(handle)
+
+
+def load_config_defaults() -> Any:
+    """Load config/config.yaml, the defaults generated from the schema in _schema.py."""
+    path = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
+    with open(path) as handle:
+        return yaml.safe_load(handle)
+
+
+# Defaults for functions called outside Snakemake, whose rules pass their own
+# resolved config values instead.
+GEO_CRS: str = load_config_defaults()["crs"]["geo"]
+BUS_TOL: float = load_config_defaults()["network"]["station_merge_radius_m"]  # metres
 
 
 def mock_snakemake(

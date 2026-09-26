@@ -425,7 +425,6 @@ def _clean_substations(
     df_substations: pd.DataFrame,
     list_voltages: Any,
     dc_hz: str,
-    *,
     accepted_ac_hz: list[float],
     tolerance_hz: float,
 ) -> pd.DataFrame:
@@ -469,7 +468,6 @@ def _clean_lines(
     df_lines: pd.DataFrame,
     list_voltages: Any,
     dc_hz: str,
-    *,
     accepted_ac_hz: list[float],
     tolerance_hz: float,
 ) -> pd.DataFrame:

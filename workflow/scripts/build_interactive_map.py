@@ -92,7 +92,6 @@ def path_layer(
     frame: gpd.GeoDataFrame,
     name: str,
     color: list[int] | str,
-    *,
     geo_crs: str,
     distance_crs: str,
     coord_decimals: int,
@@ -138,7 +137,6 @@ def polygon_layer(
     frame: gpd.GeoDataFrame,
     name: str,
     color: list[int],
-    *,
     geo_crs: str,
     distance_crs: str,
     coord_decimals: int,
@@ -190,8 +188,7 @@ def build_map(
     transformers: gpd.GeoDataFrame,
     stations: gpd.GeoDataFrame,
     bus_polygons: gpd.GeoDataFrame,
-    converters: gpd.GeoDataFrame | None = None,
-    *,
+    converters: gpd.GeoDataFrame | None,
     geo_crs: str,
     distance_crs: str,
     stations_simplify_m: float | None,
@@ -199,7 +196,7 @@ def build_map(
     lines_simplify_m: float | None,
     coord_decimals: int,
 ) -> pdk.Deck:
-    """Create the network map; ``converters`` is optional so AC-only callers can omit it."""
+    """Create an interactive network map"""
     lines = lines.copy()
     if not lines.empty:
         lines["color"] = line_colors(lines["voltage_kv"])

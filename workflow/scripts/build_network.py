@@ -993,10 +993,9 @@ def build_network(
     remove_after: str | None,
     geo_crs: str,
     distance_crs: str,
-    *,
-    station_merge_radius_m: float = BUS_TOL,
     station_bus_offset_m: float,
     overpassing_lines_tolerance_m: float,
+    station_merge_radius_m: float = BUS_TOL,
     converter_search_radius_m: float | None = None,
 ) -> tuple[
     gpd.GeoDataFrame,
