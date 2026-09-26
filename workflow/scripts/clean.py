@@ -1308,8 +1308,13 @@ def clean(
         inputs.get("substations_relation", []),
     )
     if df_substations.empty:
-        empty_buses = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
-        empty_polygons = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
+        # Same columns as the populated path: build_network selects polygons
+        # by bus_id before it checks for empty input, so a geometry-only
+        # frame would fail there for a country with no substations.
+        empty_buses = _empty_frame(
+            [c for c in SUBSTATION_COLUMNS if c not in ("geometry", "polygon")], crs
+        )
+        empty_polygons = _empty_frame(["bus_id", "voltage"], crs)
     else:
         df_substations["voltage"] = _clean_voltage(df_substations["voltage"])
         df_substations["under_construction"] = (
