@@ -86,9 +86,11 @@ rule build_network:
         buses="<resources>/build/csv/buses.csv",
         lines="<resources>/build/csv/lines.csv",
         transformers="<resources>/build/csv/transformers.csv",
+        converters="<resources>/build/csv/converters.csv",
         buses_geojson="<resources>/build/geojson/buses.geojson",
         lines_geojson="<resources>/build/geojson/lines.geojson",
         transformers_geojson="<resources>/build/geojson/transformers.geojson",
+        converters_geojson="<resources>/build/geojson/converters.geojson",
         stations_polygon="<resources>/build/geojson/stations_polygon.geojson",
         buses_polygon="<resources>/build/geojson/buses_polygon.geojson",
     log:
@@ -98,6 +100,7 @@ rule build_network:
     threads: 1
     params:
         station_merge_radius_m=config["network"]["station_merge_radius_m"],
+        converter_search_radius_m=config["network"]["converter_search_radius_m"],
         remove_under_construction=config["network"]["remove_under_construction"],
         remove_after=config["network"]["remove_after"],
         crs=config["crs"].model_dump(mode="json"),

@@ -875,6 +875,104 @@ def _add_transformers(buses: gpd.GeoDataFrame, geo_crs: str) -> gpd.GeoDataFrame
     return all_transformers[["transformer_id", *columns]]
 
 
+def _add_converters(
+    buses: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    converter_stations: set[str],
+    search_radius_m: float | None,
+    distance_crs: str,
+    geo_crs: str,
+) -> gpd.GeoDataFrame:
+    """Join each DC bus to the AC grid, combining PyPSA-Earth's and PyPSA-Eur's rules.
+
+    - PyPSA-Earth (``get_converters``): a station holding both AC and DC
+      buses is a converter station, and each DC bus pairs with the AC bus
+      of that station whose voltage is numerically closest.
+    - PyPSA-Eur (``_add_dc_buses``): a converter hall often stands apart
+      from the AC substation it feeds, further than station merging
+      reaches. A station holding an OSM ``substation=converter`` but no AC
+      bus therefore pairs its DC bus with the highest-voltage bus of the
+      nearest AC station within ``search_radius_m``. Requiring the tag
+      keeps a link that is merely cut at a border, or a cable-to-overhead
+      transition, from being wired to whatever AC happens to be near.
+
+    Each converter's ``p_nom_mw`` is the summed rating of the HVDC links
+    on its DC bus, as in PyPSA-Eur, and NaN when none is rated.
+    """
+    columns = [
+        "converter_id",
+        "station_id",
+        "bus0",
+        "bus1",
+        "voltage_bus0",
+        "voltage_bus1",
+        "p_nom_mw",
+        "pairing",
+    ]
+    ac_all = buses[~buses["dc"]]
+    ac_points = ac_all.geometry.to_crs(distance_crs)
+
+    def nearest_ac_bus(dc_bus: pd.Series) -> pd.Series | None:
+        if ac_all.empty or search_radius_m is None:
+            return None
+        origin = gpd.GeoSeries([dc_bus.geometry], crs=geo_crs).to_crs(distance_crs)
+        distances = ac_points.distance(origin.iloc[0])
+        distances = distances[distances <= search_radius_m]
+        if distances.empty:
+            return None
+        station = ac_all.loc[distances.idxmin(), "station_id"]
+        at_station = ac_all[ac_all["station_id"] == station]
+        return at_station.loc[at_station["voltage"].idxmax()]
+
+    def link_rating(bus_id: str) -> float:
+        attached = lines[(lines["bus0"] == bus_id) | (lines["bus1"] == bus_id)]
+        return attached["p_nom_mw"].sum(min_count=1)
+
+    records = []
+    for station_id, group in buses.groupby("station_id"):
+        dc_buses = group[group["dc"]]
+        if dc_buses.empty:
+            continue
+        ac_buses = group[~group["dc"]]
+        for _, dc_bus in dc_buses.sort_values("voltage", ascending=False).iterrows():
+            if not ac_buses.empty:
+                ac_bus = ac_buses.loc[
+                    (ac_buses["voltage"] - dc_bus["voltage"]).abs().idxmin()
+                ]
+                pairing = "same_station"
+            elif station_id in converter_stations:
+                ac_bus = nearest_ac_bus(dc_bus)
+                if ac_bus is None:
+                    logger.info(
+                        "Converter station %s has no AC station within %s m.",
+                        station_id,
+                        search_radius_m,
+                    )
+                    continue
+                pairing = "nearest_station"
+            else:
+                continue
+            records.append(
+                {
+                    "converter_id": (
+                        f"{station_id}-{int(dc_bus['voltage'] / 1000)}dc"
+                        f"-{int(ac_bus['voltage'] / 1000)}"
+                    ),
+                    "station_id": station_id,
+                    "bus0": dc_bus["bus_id"],
+                    "bus1": ac_bus["bus_id"],
+                    "voltage_bus0": dc_bus["voltage"],
+                    "voltage_bus1": ac_bus["voltage"],
+                    "p_nom_mw": link_rating(dc_bus["bus_id"]),
+                    "pairing": pairing,
+                    "geometry": LineString([dc_bus.geometry, ac_bus.geometry]),
+                }
+            )
+    if not records:
+        return _empty_geodataframe(columns, crs=geo_crs)
+    return gpd.GeoDataFrame(records, geometry="geometry", crs=geo_crs)
+
+
 def build_network(
     substations: gpd.GeoDataFrame,
     substations_polygon: gpd.GeoDataFrame,
@@ -890,8 +988,14 @@ def build_network(
     gpd.GeoDataFrame,
     gpd.GeoDataFrame,
     gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
 ]:
-    """Create buses, AC lines, and transformers from clean's output.
+    """Create buses, lines, transformers and converters from clean's output.
+
+    Lines and buses carry a ``dc`` flag. DC gets its own buses at each
+    station, lines attach only to buses of their own polarity, transformers
+    join AC levels only, and converters join the DC side of a station to
+    its AC side.
 
     Also returns two polygon views for visualisation: ``stations_polygon``
     (the clustered station shapes from station-seed buffering, keyed by
@@ -978,8 +1082,23 @@ def build_network(
         geo_crs=geo_crs,
         tol=station_merge_radius_m,
     )
+    # Stations holding an OSM converter hall, found before buses are merged
+    # to one per level, which would keep only one substation's tags.
+    converter_halls = buses[buses["converter"].fillna(False).astype(bool)]
+    converter_stations = set(
+        gpd.sjoin(
+            converter_halls[["geometry"]],
+            stations[["station_id", "geometry"]],
+            predicate="intersects",
+        )["station_id"]
+    )
+
     buses = _merge_buses_to_stations(
-        buses, stations, distance_crs=distance_crs, geo_crs=geo_crs
+        buses,
+        stations,
+        distance_crs=distance_crs,
+        geo_crs=geo_crs,
+        max_station_voltage_ratio=max_station_voltage_ratio,
     )
 
     buses["geometry"] = gpd.points_from_xy(
@@ -1015,6 +1134,14 @@ def build_network(
     buses = buses[~bool_not_connected].reset_index(drop=True)
 
     transformers = _add_transformers(buses, geo_crs=geo_crs)
+    converters = _add_converters(
+        buses,
+        lines,
+        converter_stations,
+        converter_search_radius_m,
+        distance_crs=distance_crs,
+        geo_crs=geo_crs,
+    )
 
     lines["length"] = lines.to_crs(distance_crs).length
 
@@ -1059,6 +1186,20 @@ def build_network(
             _non_geometry(TRANSFORMER_COLUMNS), crs=geo_crs
         )
 
+    if not converters.empty:
+        converters_out = converters.copy()
+        for side in ("0", "1"):
+            converters_out[f"voltage_bus{side}_kv"] = (
+                converters_out[f"voltage_bus{side}"] / 1000
+            ).astype(int)
+        converters_out = gpd.GeoDataFrame(
+            converters_out[CONVERTER_COLUMNS], geometry="geometry", crs=geo_crs
+        )
+    else:
+        converters_out = _empty_geodataframe(
+            _non_geometry(CONVERTER_COLUMNS), crs=geo_crs
+        )
+
     stations_polygon_out = stations[STATION_POLYGON_COLUMNS].copy()
     buses_polygon_out = buses_polygon.copy()
 
@@ -1066,6 +1207,7 @@ def build_network(
         buses_out,
         lines_out,
         transformers_out,
+        converters_out,
         stations_polygon_out,
         buses_polygon_out,
     )
@@ -1088,7 +1230,14 @@ if __name__ == "__main__":
         snakemake = mock_snakemake("build_network")
 
     configure_logging(snakemake.log[0])
-    buses, lines, transformers, stations_polygon, buses_polygon = build_network(
+    (
+        buses,
+        lines,
+        transformers,
+        converters,
+        stations_polygon,
+        buses_polygon,
+    ) = build_network(
         gpd.read_file(snakemake.input.substations),
         gpd.read_file(snakemake.input.substations_polygon),
         gpd.read_file(snakemake.input.lines),
@@ -1097,12 +1246,16 @@ if __name__ == "__main__":
         snakemake.params.crs["geo"],
         snakemake.params.crs["distance"],
         snakemake.params.station_merge_radius_m,
+        snakemake.params.max_station_voltage_ratio,
+        snakemake.params.converter_search_radius_m,
     )
     logger.info(
         "Built %d buses, %d lines (%d DC), %d transformers, and %d converters.",
         len(buses),
         len(lines),
+        int(lines["dc"].sum()) if not lines.empty else 0,
         len(transformers),
+        len(converters),
     )
     _write_components(buses, snakemake.output.buses, snakemake.output.buses_geojson)
     _write_components(lines, snakemake.output.lines, snakemake.output.lines_geojson)
@@ -1110,6 +1263,9 @@ if __name__ == "__main__":
         transformers,
         snakemake.output.transformers,
         snakemake.output.transformers_geojson,
+    )
+    _write_components(
+        converters, snakemake.output.converters, snakemake.output.converters_geojson
     )
     stations_polygon.to_file(snakemake.output.stations_polygon, driver="GeoJSON")
     buses_polygon.to_file(snakemake.output.buses_polygon, driver="GeoJSON")

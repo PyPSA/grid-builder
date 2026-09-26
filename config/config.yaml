@@ -28,6 +28,7 @@ network:
   - 50.0
   - 60.0
   frequency_tolerance_hz: 0.1
+  converter_search_radius_m: 50000.0
   dc_lines: keep
   station_merge_radius_m: 500.0
   remove_under_construction: true

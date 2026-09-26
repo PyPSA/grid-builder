@@ -148,6 +148,12 @@
           "minimum": 0,
           "type": "number"
         },
+        "converter_search_radius_m": {
+          "default": 50000.0,
+          "description": "How far, in metres, a station tagged substation=converter looks for an AC station when it has DC buses but no AC bus of its own. Converter halls often sit apart from the AC substation they feed, further than station_merge_radius_m merges; PyPSA-Eur uses 50 km",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
         "dc_lines": {
           "default": "keep",
           "description": "Treatment of DC lines and cables. keep carries them as dc=true, gives them their own buses and adds converters where a station holds both AC and DC buses. drop removes them. force_ac keeps them but relabels them AC, for downstream models that cannot handle DC",
