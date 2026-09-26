@@ -190,6 +190,7 @@ def build_map(
     transformers: gpd.GeoDataFrame,
     stations: gpd.GeoDataFrame,
     bus_polygons: gpd.GeoDataFrame,
+    converters: gpd.GeoDataFrame | None = None,
     *,
     geo_crs: str,
     distance_crs: str,
@@ -198,7 +199,7 @@ def build_map(
     lines_simplify_m: float | None,
     coord_decimals: int,
 ) -> pdk.Deck:
-    """Create the generic AC map without requiring DC links or converters."""
+    """Create the network map; ``converters`` is optional so AC-only callers can omit it."""
     lines = lines.copy()
     if not lines.empty:
         lines["color"] = line_colors(lines["voltage_kv"])
@@ -238,6 +239,14 @@ def build_map(
                 transformers,
                 "Transformers",
                 [255, 255, 0, 180],
+                geo_crs=geo_crs,
+                distance_crs=distance_crs,
+                coord_decimals=coord_decimals,
+            ),
+            path_layer(
+                converters if converters is not None else gpd.GeoDataFrame(),
+                "Converters",
+                [0, 255, 255, 220],
                 geo_crs=geo_crs,
                 distance_crs=distance_crs,
                 coord_decimals=coord_decimals,
