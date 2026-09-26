@@ -267,9 +267,7 @@ def _frequency_for_split(row: pd.Series) -> str:
     values = row["frequency"].split(";")
     if len(values) == 1:
         return values[0]
-    position = (
-        int(row["id"].rsplit("-", 1)[1]) - 1 if row["split_elements"] > 1 else 0
-    )
+    position = int(row["id"].rsplit("-", 1)[1]) - 1 if row["split_elements"] > 1 else 0
     return values[min(position, len(values) - 1)]
 
 
@@ -280,7 +278,9 @@ def _apply_dc_lines_mode(
     df = df.copy()
     is_dc = df["frequency"] == dc_hz
     if dc_lines == "drop":
-        logger.info("Dropped %d DC %s (network.dc_lines: drop).", int(is_dc.sum()), label)
+        logger.info(
+            "Dropped %d DC %s (network.dc_lines: drop).", int(is_dc.sum()), label
+        )
         df = df[~is_dc].copy()
         df["dc"] = False
     elif dc_lines == "force_ac":
@@ -1202,10 +1202,7 @@ def _region_min_voltage(
 
 
 def _above_voltage_floor(
-    df: pd.DataFrame,
-    network: dict[str, Any],
-    regions: dict[str, Any],
-    dc_hz: str,
+    df: pd.DataFrame, network: dict[str, Any], regions: dict[str, Any], dc_hz: str
 ) -> pd.Series:
     """True where a row meets its own floor: the DC floor for DC, the regional AC floor otherwise.
 
@@ -1228,7 +1225,9 @@ def _lowest_voltage_floor(network: dict[str, Any], regions: dict[str, Any]) -> f
         if region.get("minimum_voltage_kv")
     ]
     return (
-        min([network["minimum_voltage_kv"], network["minimum_voltage_dc_kv"], *regional])
+        min(
+            [network["minimum_voltage_kv"], network["minimum_voltage_dc_kv"], *regional]
+        )
         * 1000
     )
 
@@ -1323,9 +1322,9 @@ def clean(
         )
         df_substations["start_date"] = _clean_date(df_substations["start_date"])
 
-        df_substations["converter"] = (
-            _to_str(df_substations["substation"]).str.contains("converter")
-        )
+        df_substations["converter"] = _to_str(
+            df_substations["substation"]
+        ).str.contains("converter")
         df_substations, list_voltages = _filter_by_voltage(
             df_substations, min_voltage=lowest_floor
         )
@@ -1474,7 +1473,7 @@ def clean(
     )
     if not df_lines.empty:
         df_lines = _drop_duplicate_lines(df_lines)
-        # A relation is assumed to be underground when all its member ways 
+        # A relation is assumed to be underground when all its member ways
         # are cables (originates from PyPSA-Eur)
         # TODO: check applicability on the global scale
         if lines_frames:
@@ -1498,9 +1497,7 @@ def clean(
             | (df_lines["power"] == "construction")
         )
         df_lines["start_date"] = _clean_date(df_lines["start_date"])
-        df_lines, list_voltages = _filter_by_voltage(
-            df_lines, min_voltage=lowest_floor
-        )
+        df_lines, list_voltages = _filter_by_voltage(df_lines, min_voltage=lowest_floor)
 
     if not df_lines.empty:
         df_lines["circuits"] = _clean_circuits(df_lines["circuits"])
@@ -1526,7 +1523,9 @@ def clean(
         clean_lines = _remove_lines_within_substations(clean_lines, substation_polygons)
         if not clean_lines.empty and not substation_polygons.empty:
             clean_lines = _extend_lines_to_substations(
-                clean_lines, substation_polygons, tol=network["station_merge_radius_m"] / 2
+                clean_lines,
+                substation_polygons,
+                tol=network["station_merge_radius_m"] / 2,
             )
         clean_lines = gpd.GeoDataFrame(clean_lines, geometry="geometry", crs=crs)
     else:

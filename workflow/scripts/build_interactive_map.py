@@ -196,7 +196,7 @@ def build_map(
     lines_simplify_m: float | None,
     coord_decimals: int,
 ) -> pdk.Deck:
-    """Create an interactive network map"""
+    """Create an interactive network map."""
     lines = lines.copy()
     if not lines.empty:
         lines["color"] = line_colors(lines["voltage_kv"])
@@ -1094,8 +1094,16 @@ if __name__ == "__main__":
     configure_logging(snakemake.log[0])
     geo_crs = snakemake.params.crs["geo"]
     simplify = snakemake.params.interactive_map["simplify_geometries"]
+    buses, lines, transformers, stations, bus_polygons, converters = (
+        gpd.read_file(path).to_crs(geo_crs) for path in snakemake.input
+    )
     deck = build_map(
-        *(gpd.read_file(path).to_crs(geo_crs) for path in snakemake.input),
+        buses,
+        lines,
+        transformers,
+        stations,
+        bus_polygons,
+        converters,
         geo_crs=geo_crs,
         distance_crs=snakemake.params.crs["distance"],
         stations_simplify_m=simplify["stations_m"] if simplify["enable"] else None,

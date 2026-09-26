@@ -104,14 +104,14 @@ def _empty_geodataframe(columns: list[str], crs: str) -> gpd.GeoDataFrame:
 
 
 def _non_geometry(columns: list[str]) -> list[str]:
-    """Drop the geometry column from ``columns`` maintaining structure 
-    otherwise"""
+    """Drop the geometry column from ``columns`` maintaining structure otherwise."""
     return [column for column in columns if column != "geometry"]
 
 
 def _merge_country_codes(values: Any) -> str:
-    """Clean-up country codes for multy-country entries which is essential
-    for cross-border elements.
+    """Clean-up country codes for multy-country entries.
+
+    This is essential for cross-border elements.
     """
     co_codes: set[str] = set()
     for value in values:
@@ -194,8 +194,7 @@ def _remove_loops_from_multiline(multiline: Any) -> Any:
 
 
 def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Create deterministic virtual buses at each unique (voltage, endpoint)
-    combination.
+    """Create deterministic virtual buses at each unique (voltage, endpoint) pair.
 
     A virtual bus inherits its attributes from the lines that meet there.
     """
@@ -1251,25 +1250,20 @@ if __name__ == "__main__":
         snakemake = mock_snakemake("build_network")
 
     configure_logging(snakemake.log[0])
-    (
-        buses,
-        lines,
-        transformers,
-        converters,
-        stations_polygon,
-        buses_polygon,
-    ) = build_network(
-        gpd.read_file(snakemake.input.substations),
-        gpd.read_file(snakemake.input.substations_polygon),
-        gpd.read_file(snakemake.input.lines),
-        snakemake.params.remove_under_construction,
-        snakemake.params.remove_after,
-        snakemake.params.crs["geo"],
-        snakemake.params.crs["distance"],
-        station_merge_radius_m=snakemake.params.station_merge_radius_m,
-        station_bus_offset_m=snakemake.params.station_bus_offset_m,
-        overpassing_lines_tolerance_m=snakemake.params.overpassing_lines_tolerance_m,
-        converter_search_radius_m=snakemake.params.converter_search_radius_m,
+    (buses, lines, transformers, converters, stations_polygon, buses_polygon) = (
+        build_network(
+            gpd.read_file(snakemake.input.substations),
+            gpd.read_file(snakemake.input.substations_polygon),
+            gpd.read_file(snakemake.input.lines),
+            snakemake.params.remove_under_construction,
+            snakemake.params.remove_after,
+            snakemake.params.crs["geo"],
+            snakemake.params.crs["distance"],
+            station_merge_radius_m=snakemake.params.station_merge_radius_m,
+            station_bus_offset_m=snakemake.params.station_bus_offset_m,
+            overpassing_lines_tolerance_m=snakemake.params.overpassing_lines_tolerance_m,
+            converter_search_radius_m=snakemake.params.converter_search_radius_m,
+        )
     )
     logger.info(
         "Built %d buses, %d lines (%d DC), %d transformers, and %d converters.",
