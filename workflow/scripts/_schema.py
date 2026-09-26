@@ -168,6 +168,15 @@ class NetworkConfig(ConfigModel):
     minimum_voltage_kv: float = Field(
         220.0, description="Minimum nominal AC voltage retained from OSM, in kV", gt=0
     )
+    minimum_voltage_dc_kv: float = Field(
+        150.0,
+        description=(
+            "Minimum nominal DC voltage retained from OSM, in kV. Separate from "
+            "the AC floor because HVDC links commonly run below 220 kV, e.g. "
+            "the 150 kV Estlink 1 and Gotland links; PyPSA-Eur uses 150 kV"
+        ),
+        gt=0,
+    )
     frequency_hz: FrequencyConfig = Field(
         default_factory=FrequencyConfig,
         description="AC/DC frequency in Hz; override per country in config/regions for e.g. 60 Hz grids",
