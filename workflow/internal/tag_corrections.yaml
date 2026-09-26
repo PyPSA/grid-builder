@@ -1,12 +1,9 @@
 # Module data that users cannot modify: ordered, literal string corrections
 # for known-bad OSM tag values, applied by clean.py's `_clean_*`
-# functions before their general syntax cleanup. Order matters — a later
-# entry can depend on an earlier one having already run — and each list is
+# functions before their general syntax cleanup. Order matters as a later
+# entry can depend on an earlier one having already run. Each list is
 # applied verbatim, so add new entries at the point in the sequence where
-# they belong, not just at the end. `lower: true` marks where the original
-# PyPSA-Eur code lowercases the column; for most columns that happens before
-# any corrections, but `circuits` lowercases only after its first two
-# (case-sensitive) corrections, so entries must stay in that exact order.
+# they belong, not just at the end.
 #
 # Ported verbatim from PyPSA-Eur's clean_osm_data.py (fix-osm branch),
 # including one inert entry: voltage's "400/220/110 kV'" pattern contains an
