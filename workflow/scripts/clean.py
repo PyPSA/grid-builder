@@ -272,12 +272,12 @@ def _split_cells(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFram
 
 
 def _distribute_to_circuits(row: pd.Series) -> str:
-    """Split a row's circuits (or cables/3) evenly across its ``split_elements``."""
+    """Split a row's circuits (or cables per circuit) evenly across its ``split_elements``."""
     circuits: float
     if row["circuits"] != "":
         circuits = int(row["circuits"])
     else:
-        circuits = int(row["cables"]) / 3
+        circuits = int(row["cables"]) / row["_cables_per_circuit"]
     single_circuit = int(max(1, np.floor_divide(circuits, row["split_elements"])))
     return str(single_circuit)
 
@@ -510,7 +510,8 @@ def _clean_lines(
             max(
                 1,
                 np.floor_divide(
-                    int(row["cables"].split(";")[int(row["id"].split("-")[-1]) - 1]), 3
+                    int(row["cables"].split(";")[int(row["id"].split("-")[-1]) - 1]),
+                    row["_cables_per_circuit"],
                 ),
             )
         ),
@@ -529,6 +530,15 @@ def _clean_lines(
     ]
     df_lines.loc[bool_leftover & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_leftover, "cleaned"] = True
+
+    df_lines = df_lines.drop(columns=["_cables_per_circuit"])
+    no_conductors = df_lines["circuits"] == "0"
+    if no_conductors.any():
+        logger.info(
+            "Dropping %d line(s) tagged with no live conductor.",
+            int(no_conductors.sum()),
+        )
+        df_lines = df_lines[~no_conductors]
 
     return df_lines
 
