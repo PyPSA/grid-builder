@@ -107,17 +107,20 @@ def path_layer(
         frame["geometry"] = (
             frame.geometry.to_crs(distance_crs).simplify(simplify_m).to_crs(geo_crs)
         )
+    # A PathLayer datum is one flat list of positions, so a MultiLineString has
+    # to become one row per part. Handing deck.gl a nested list instead throws
+    # inside its tesselator and takes the whole canvas down with it, not just
+    # the offending row, so a single multi-part line blanks the entire map.
+    if (frame.geom_type == "MultiLineString").any():
+        frame = frame.explode(index_parts=False).reset_index(drop=True)
     data = tooltip(frame)
     data["path"] = data.geometry.map(
-        lambda line: (
-            [
-                [_coord(point, coord_decimals) for point in item.coords]
-                for item in line.geoms
-            ]
-            if line.geom_type == "MultiLineString"
-            else [_coord(point, coord_decimals) for point in line.coords]
-        )
+        lambda line: [_coord(point, coord_decimals) for point in line.coords]
     )
+    # Zero-length parts carry no picture and give deck.gl degenerate normals.
+    data = data[data["path"].map(lambda path: len({tuple(p) for p in path}) > 1)]
+    if data.empty:
+        return None
     return pdk.Layer(
         "PathLayer",
         data=data.drop(columns="geometry"),
@@ -150,16 +153,15 @@ def polygon_layer(
         frame["geometry"] = (
             frame.geometry.to_crs(distance_crs).simplify(simplify_m).to_crs(geo_crs)
         )
+    # deck.gl reads a nested list as one polygon with holes, so the parts of a
+    # MultiPolygon would be punched out of the first part instead of drawn.
+    if (frame.geom_type == "MultiPolygon").any():
+        frame = frame.explode(index_parts=False).reset_index(drop=True)
     data = tooltip(frame)
     data["polygon"] = data.geometry.map(
-        lambda polygon: (
-            [
-                [_coord(point, coord_decimals) for point in item.exterior.coords]
-                for item in polygon.geoms
-            ]
-            if polygon.geom_type == "MultiPolygon"
-            else [_coord(point, coord_decimals) for point in polygon.exterior.coords]
-        )
+        lambda polygon: [
+            _coord(point, coord_decimals) for point in polygon.exterior.coords
+        ]
     )
     extrusion_kwargs: dict[str, Any] = {}
     if extruded:
