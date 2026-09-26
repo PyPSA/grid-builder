@@ -1,6 +1,6 @@
 # grid-builder
 
-A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
+A modular Snakemake workflow for building a model of transmission power grid for any country of the world. OpenStreetMap is used an a major source of original data and can be supplemented by custom inputs.
 
 <p align="center">
   <img src="./figures/example.png" width="75%">
@@ -12,7 +12,7 @@ A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 
 ## About
 
-`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. It can be imported into another `snakemake` workflow.
+`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. Custom data can be injected by providing input files of unified structure. The `grid-builder` workflow can be imported into another `snakemake`based project.
 
 The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
 
@@ -27,15 +27,13 @@ Currently implemented:
 1. Retrieve OSM substations, lines, cables, and (optionally) circuit relations by country, either from a cached local Geofabrik PBF extract or the live Overpass API.
 2. Clean the raw retrieval output, filtering voltage, frequency, construction status, and future assets, and grouping relation member ways into one line per real-world circuit.
 3. Merge nearby stations and line endpoints into generic buses, AC lines, and transformers.
-4. Build a self-contained interactive map of the resulting network (`map.html`), with layer toggles, voltage/text filtering, and click-through OSM links — this is the workflow's default target.
+4. Build an interactive map of the resulting network (`map.html`).
 
 ## Configuration
 
 Configuration lives in [`config/config.yaml`](./config/config.yaml), validated against a generated JSON schema. See the configuration [README](./config/README.md) for the available controls, including retrieval backends, regional overrides, and personal/local settings.
 
 ## Input / output structure
-
-Please consult the [interface file](./INTERFACE.yaml) for more information.
 
 Raw retrieval outputs use `<resources>/retrieve/{country}_{feature}.json`, one
 file per country and feature (`lines_way`, `cables_way`, `substations_way`,
@@ -54,10 +52,9 @@ integration example sets these roots to `resources/grid-builder` and
 `logs/grid-builder`. Downloaded PBF files (used for `retrieve.source: geofabrik`)
 are cached in `data/earth-osm` in this checkout.
 
-DC assets (links, converters, switching stations) are out of scope: this workflow
-builds a generic AC topology only, with no PyPSA-specific line types or capacities.
+Please consult the [interface file](./INTERFACE.yaml) for more information.
 
-## Development
+## Dependency management
 
 We use [`pixi`](https://pixi.sh/) as our package manager for development.
 Once installed, run the following to clone this repository and install all dependencies.
