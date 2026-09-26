@@ -18,6 +18,16 @@ from ruamel.yaml.comments import CommentedMap
 
 _VALID_REGIONS: frozenset[str] = frozenset(get_all_valid_codes())
 
+#: The fixed set of raw OSM features to enable compartibility with custom data.
+OSM_FEATURES: tuple[str, ...] = (
+    "lines_way",
+    "cables_way",
+    "substations_way",
+    "substations_node",
+    "substations_relation",
+    "routes_relation",
+)
+
 
 def _validate_countries(countries: list[str]) -> None:
     """Raise a clear error for any country not recognised by earth-osm's region list.
