@@ -1190,10 +1190,36 @@ def _split_country_codes(country: Any) -> list[str]:
 def _region_min_voltage(
     country: str, network: dict[str, Any], regions: dict[str, Any]
 ) -> float:
-    """Minimum AC voltage [V] for ``country``: its regional override, else the network default."""
-    override = regions.get(country, {}).get("minimum_voltage_kv")
-    kv = override if override is not None else network["minimum_voltage_kv"]
-    return float(kv) * 1000  # kV -> V
+    """Minimum AC voltage [V] for ``country``: its regional override, else the network default.
+
+    For a cross-border element the most permissive threshold wins, so an
+    interconnector survives whenever either side would keep it.
+    """
+    thresholds = [
+        regions.get(code, {}).get("minimum_voltage_kv") or network["minimum_voltage_kv"]
+        for code in _split_country_codes(country)
+    ] or [network["minimum_voltage_kv"]]
+    return float(min(thresholds)) * 1000  # kV -> V
+
+
+def _above_voltage_floor(
+    df: pd.DataFrame,
+    network: dict[str, Any],
+    regions: dict[str, Any],
+    dc_hz: str,
+) -> pd.Series:
+    """True where a row meets its own floor: the DC floor for DC, the regional AC floor otherwise.
+
+    Rows must already carry a normalised ``frequency``. This runs after an
+    initial filter at the lowest floor in play (see ``_lowest_voltage_floor``),
+    so that neither a lower regional AC floor nor the DC floor is cut off
+    by the global AC one first.
+    """
+    ac_floor = df["country"].map(lambda c: _region_min_voltage(c, network, regions))
+    dc_floor = network["minimum_voltage_dc_kv"] * 1000
+    floor = ac_floor.where(df["frequency"] != dc_hz, dc_floor)
+    return df["voltage"].astype(int) >= floor
+
 
 def _lowest_voltage_floor(network: dict[str, Any], regions: dict[str, Any]) -> float:
     """The lowest voltage [V] any row could be kept at: global AC, any regional AC, or DC."""
