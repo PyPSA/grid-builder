@@ -964,11 +964,8 @@ def build_network(
     buses_out = buses.copy()
     buses_out["voltage_kv"] = (buses_out["voltage"] / 1000).astype(int)
     buses_out["osm_ids"] = buses_out["contains"].apply(_contains_to_osm_ids)
-    buses_out = buses_out.rename(columns={"station_id": "station_id"})
     buses_out = gpd.GeoDataFrame(
-        buses_out[["bus_id", "station_id", "voltage_kv", "osm_ids", "geometry"]],
-        geometry="geometry",
-        crs=geo_crs,
+        buses_out[BUS_COLUMNS], geometry="geometry", crs=geo_crs
     )
 
     lines_out = lines.copy()
