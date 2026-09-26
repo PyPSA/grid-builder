@@ -272,6 +272,30 @@ def _frequency_for_split(row: pd.Series) -> str:
     return values[min(position, len(values) - 1)]
 
 
+def _apply_dc_lines_mode(
+    df: pd.DataFrame, dc_lines: str, dc_hz: str, label: str
+) -> pd.DataFrame:
+    """Set the ``dc`` flag from the normalised frequency and apply ``network.dc_lines``."""
+    df = df.copy()
+    is_dc = df["frequency"] == dc_hz
+    if dc_lines == "drop":
+        logger.info("Dropped %d DC %s (network.dc_lines: drop).", int(is_dc.sum()), label)
+        df = df[~is_dc].copy()
+        df["dc"] = False
+    elif dc_lines == "force_ac":
+        logger.info(
+            "Relabelled %d DC %s as AC (network.dc_lines: force_ac).",
+            int(is_dc.sum()),
+            label,
+        )
+        df.loc[is_dc, "frequency"] = df.loc[is_dc, "_ac_hz"]
+        df["dc"] = False
+    else:
+        logger.info("Keeping %d DC %s.", int(is_dc.sum()), label)
+        df["dc"] = is_dc
+    return df
+
+
 def _clean_date(column: pd.Series) -> pd.Series:
     """Parse a raw ``start_date`` tag column to datetimes, coercing invalid values to NaT."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["date"])
