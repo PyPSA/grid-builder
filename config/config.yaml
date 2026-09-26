@@ -23,6 +23,10 @@ network:
   frequency_hz:
     AC: 50.0
     DC: 0.0
+  accepted_ac_frequencies_hz:
+  - 50.0
+  - 60.0
+  frequency_tolerance_hz: 0.1
   station_merge_radius_m: 500.0
   remove_under_construction: true
   remove_after: 2026-12-31
