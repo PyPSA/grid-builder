@@ -9,7 +9,7 @@ pathvars:
       description: >-
         Raw OSM files are written to retrieve/{country}_{feature}.json.
         Clean features are written below clean; generic network outputs
-        below build (buses/lines/transformers as CSV under build/csv
+        below build (buses/lines/transformers/converters as CSV under build/csv
         and GeoJSON, including substation polygons, under build/geojson).
         An interactive PyDeck map of the network, and the default target
         of this workflow, is written to map.html.

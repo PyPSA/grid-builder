@@ -40,7 +40,7 @@ file per country and feature (`lines_way`, `cables_way`, `substations_way`,
 `substations_node`, `substations_relation`, `routes_relation`). Both retrieval
 backends write the same raw-Overpass-JSON shape, so downstream cleaning doesn't
 need to know which one ran. Clean features use `<resources>/clean/*.geojson`;
-generic network components use `<resources>/build/csv/{buses,lines,transformers}.csv`
+generic network components use `<resources>/build/csv/{buses,lines,transformers,converters}.csv`
 and matching GeoJSON files under `<resources>/build/geojson/`, which also
 includes `stations_polygon.geojson` (clustered station shapes) and
 `buses_polygon.geojson` (substation polygons scoped to the buses in the output).
