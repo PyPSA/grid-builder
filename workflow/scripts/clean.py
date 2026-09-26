@@ -620,20 +620,19 @@ def _create_substations_poi(
 
 
 def _aggregate_substations(df_substations: pd.DataFrame) -> pd.DataFrame:
-    """One row per (original id, voltage, country), even after voltage-splitting."""
+    """One row per (original id, voltage, polarity, country), even after splitting.
+
+    Polarity is part of the key so that a converter station tagged e.g.
+    voltage=320000;320000 frequency=50;0 keeps both its AC and DC side.
+    """
     df_substations = df_substations.copy()
     df_substations["id"] = df_substations["id"].apply(
         lambda x: x.split("-")[0] if "-" in x else x
     )
+    keys = ["id", "voltage", "dc", "country"]
     df_substations = (
-        df_substations.groupby(["id", "voltage", "country"])
-        .agg(
-            {
-                col: "first"
-                for col in df_substations.columns
-                if col not in ["id", "voltage", "country"]
-            }
-        )
+        df_substations.groupby(keys)
+        .agg({col: "first" for col in df_substations.columns if col not in keys})
         .reset_index()
     )
     return df_substations
@@ -668,36 +667,27 @@ def _finalise_substations(df_substations: pd.DataFrame) -> gpd.GeoDataFrame:
         df_substations["contains"] = df_substations["bus_id"].apply(
             lambda x: x.split("-")[0]
         )
-    columns = [
-        "bus_id",
-        "voltage",
-        "country",
-        "under_construction",
-        "start_date",
-        "geometry",
-        "polygon",
-        "contains",
-    ]
-    df_substations = df_substations[columns]
+    df_substations = df_substations[SUBSTATION_COLUMNS]
     if not df_substations.empty:
         df_substations["voltage"] = df_substations["voltage"].astype(int)
     return df_substations
 
 
 def _aggregate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
-    """One row per (original line_id, voltage), summing circuits across splits."""
+    """One row per (original line_id, voltage, polarity), summing circuits across splits."""
     df_lines = df_lines.copy()
     df_lines["line_id"] = df_lines["line_id"].apply(
         lambda x: x.split("-")[0] if "-" in x else x
     )
+    keys = ["line_id", "voltage", "dc"]
     df_lines = (
-        df_lines.groupby(["line_id", "voltage"])
+        df_lines.groupby(keys)
         .agg(
             {
                 **{
                     col: "first"
                     for col in df_lines.columns
-                    if col not in ["line_id", "voltage", "circuits"]
+                    if col not in [*keys, "circuits"]
                 },
                 "circuits": "sum",
             }
@@ -1388,12 +1378,8 @@ def clean(
             lambda c: _region_ac_hz(c, network, regions)
         )
         df_lines = _clean_lines(df_lines, list_voltages, dc_hz, **frequency_options)
-
-    if not df_lines.empty:
-        row_min = df_lines["country"].map(
-            lambda c: _region_min_voltage(c, network, regions)
-        )
-        df_lines = df_lines[df_lines["voltage"].astype(int) >= row_min]
+        df_lines = df_lines[_above_voltage_floor(df_lines, network, regions, dc_hz)]
+        df_lines = _apply_dc_lines_mode(df_lines, dc_lines, dc_hz, "lines/cables")
 
     if not df_lines.empty:
         df_lines = _create_lines_geometry(df_lines)
