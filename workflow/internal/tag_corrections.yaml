@@ -20,6 +20,14 @@
 # it can never match. Preserved as-is rather than "fixed" to keep behaviour
 # identical to the reference.
 #
+# NB PyPSA-Earth's float artefacts ("50.0" -> "50") are deliberately not ported,
+# as they should be covered by earth_osm's GeoJSON round-trip usaga of raw OSM
+# strings (TODO may need some additional checking).
+#
+# NB2 PyPSA-Eur applies "low"/"minor"/"medium"/"med"/"m"/"high" as substring 
+# replacements,but they're meant to catch a tag whose *entire* value is that
+# word as some OSM contributors classify voltage qualitatively instead of 
+# numerically (TODO Needs verification with MapYourGrid colleagues). 
 
 voltage:
   - lower: true
