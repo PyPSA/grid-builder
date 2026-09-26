@@ -223,7 +223,13 @@ class NetworkConfig(ConfigModel):
     )
     station_merge_radius_m: float = Field(
         500.0,
-        description="Buffer radius used to merge nearby substations and line endpoints, in metres",
+        description=(
+            "Buffer radius used to merge nearby substations and line endpoints, "
+            "in metres. Both sides of a pair are buffered by this radius before "
+            "the buffers are dissolved, so two elements merge once they are "
+            "within twice this value of each other: the default of 500 merges "
+            "substations up to 1 km apart"
+        ),
         gt=0,
     )
     remove_under_construction: bool = Field(
