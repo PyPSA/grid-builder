@@ -377,8 +377,12 @@ def _filter_by_voltage(
 
 
 def _clean_substations(
-    df_substations: pd.DataFrame, list_voltages: Any, dc_hz: str
+    df_substations: pd.DataFrame,
+    list_voltages: Any,
+    dc_hz: str,
+    *,
     accepted_ac_hz: list[float],
+    tolerance_hz: float,
 ) -> pd.DataFrame:
     """Split multi-voltage substation rows and normalise each split's frequency.
 
@@ -419,6 +423,8 @@ def _clean_substations(
 def _clean_lines(
     df_lines: pd.DataFrame,
     list_voltages: Any,
+    dc_hz: str,
+    *,
     accepted_ac_hz: list[float],
     tolerance_hz: float,
 ) -> pd.DataFrame:
@@ -450,6 +456,10 @@ def _clean_lines(
 
     bool_ac = df_lines["frequency"] != dc_hz
     bool_dc = ~bool_ac
+    # Three conductors per AC circuit, two per DC circuit, as in PyPSA-Earth's
+    # fill_circuits. The single-cable branches below already split on this;
+    # the multi-voltage branches read it from here.
+    df_lines["_cables_per_circuit"] = np.where(bool_dc, 2, 3)
     bool_invalid_frequency = df_lines.apply(
         lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
     )
@@ -460,6 +470,18 @@ def _clean_lines(
         bool_noinfo & bool_invalid_frequency, "_ac_hz"
     ]
     df_lines.loc[bool_noinfo, "cleaned"] = True
+
+    # An explicit zero means the way carries no live conductor: a ground wire
+    # ("ground") or a retired one ("1 disused"). Every branch below floors the
+    # count at one circuit, so without this the way would enter the network as
+    # a live single-circuit line. PyPSA-Earth reaches the same end by letting
+    # the zero through and dropping it in filter_circuits.
+    bool_no_conductors = (~df_lines["cleaned"]) & (
+        ((df_lines["cables"] == "0") & (df_lines["circuits"] == ""))
+        | (df_lines["circuits"] == "0")
+    )
+    df_lines.loc[bool_no_conductors, "circuits"] = "0"
+    df_lines.loc[bool_no_conductors, "cleaned"] = True
 
     bool_cables_ac = (
         (df_lines["cables"] != "")
@@ -1165,8 +1187,15 @@ def clean(
     ``include_relations`` is off) is simply skipped.
     """
     crs = geo_crs
+    # Admit everything down to the lowest floor in play; each row's own
+    # floor (regional AC, or DC) is applied once its polarity is known.
     lowest_floor = _lowest_voltage_floor(network, regions)  # V
     dc_hz = _format_hz(network["frequency_hz"]["DC"])
+    dc_lines = network["dc_lines"]
+    frequency_options = {
+        "accepted_ac_hz": network["accepted_ac_frequencies_hz"],
+        "tolerance_hz": network["frequency_tolerance_hz"],
+    }
 
     # --- Substations -------------------------------------------------
     logger.info("Importing substations.")
@@ -1194,15 +1223,18 @@ def clean(
         df_substations["_ac_hz"] = df_substations["country"].map(
             lambda c: _region_ac_hz(c, network, regions)
         )
-        df_substations = _clean_substations(df_substations, list_voltages, dc_hz)
-
-        # Regional per-country minimum voltage override.
-        row_min = df_substations["country"].map(
-            lambda c: _region_min_voltage(c, network, regions)
+        df_substations = _clean_substations(
+            df_substations, list_voltages, dc_hz, **frequency_options
         )
+        # A DC substation element only means something while DC lines are
+        # kept; otherwise it stays an ordinary bus, as it was before DC
+        # support existed.
         df_substations = df_substations[
-            df_substations["voltage"].astype(int) >= row_min
+            _above_voltage_floor(df_substations, network, regions, dc_hz)
         ]
+        df_substations["dc"] = (df_substations["frequency"] == dc_hz) & (
+            dc_lines == "keep"
+        )
 
         # Nodes (earth-osm/Geofabrik-only, or our own overpass addition) skip
         # the polygon-only pipeline (touching-polygon merge, PoI, line-
