@@ -148,6 +148,16 @@
           "minimum": 0,
           "type": "number"
         },
+        "dc_lines": {
+          "default": "keep",
+          "description": "Treatment of DC lines and cables. keep carries them as dc=true, gives them their own buses and adds converters where a station holds both AC and DC buses. drop removes them. force_ac keeps them but relabels them AC, for downstream models that cannot handle DC",
+          "enum": [
+            "keep",
+            "drop",
+            "force_ac"
+          ],
+          "type": "string"
+        },
         "station_merge_radius_m": {
           "default": 500.0,
           "description": "Buffer radius used to merge nearby substations and line endpoints, in metres",

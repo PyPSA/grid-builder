@@ -42,6 +42,7 @@ BUS_COLUMNS = [
     "bus_id",
     "station_id",
     "voltage_kv",
+    "dc",
     "country",
     "under_construction",
     "start_date",
@@ -54,6 +55,7 @@ LINE_COLUMNS = [
     "bus0",
     "bus1",
     "voltage_kv",
+    "dc",
     "circuits",
     "length_m",
     "underground",
@@ -71,6 +73,22 @@ TRANSFORMER_COLUMNS = [
     "bus1",
     "voltage_bus0_kv",
     "voltage_bus1_kv",
+    "geometry",
+]
+
+# A converter joins a DC bus (bus0) to an AC bus (bus1). ``pairing`` records
+# which rule found the AC side: "same_station" (PyPSA-Earth's get_converters)
+# or "nearest_station" (PyPSA-Eur's converter-hall mapping). ``p_nom_mw`` is
+# the summed rating of the HVDC links on the DC bus, as in PyPSA-Eur.
+CONVERTER_COLUMNS = [
+    "converter_id",
+    "station_id",
+    "bus0",
+    "bus1",
+    "voltage_bus0_kv",
+    "voltage_bus1_kv",
+    "p_nom_mw",
+    "pairing",
     "geometry",
 ]
 
@@ -123,11 +141,11 @@ def _treat_under_construction(
 
 
 def _merge_identical_lines(lines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Aggregate lines with identical geometry and voltage (e.g. duplicated across a border)."""
+    """Aggregate lines with identical geometry, voltage and polarity (e.g. duplicated across a border)."""
     lines_all = lines.copy()
     lines_to_drop = []
 
-    for _, group in lines_all.groupby(["geometry", "voltage"]):
+    for _, group in lines_all.groupby(["geometry", "voltage", "dc"]):
         line_ids = list(group["line_id"])
         if len(line_ids) > 1:
             lid_old = line_ids[0]
@@ -182,6 +200,7 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
     line_data = lines[
         [
             "voltage",
+            "dc",
             "geometry",
             "line_id",
             "country",
@@ -224,8 +243,10 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
             }
         )
 
+    # Polarity is part of the key: an AC and a DC line ending at the same
+    # point at the same voltage must not share a bus.
     endpoints = (
-        endpoints.groupby(["voltage", "geometry"])
+        endpoints.groupby(["voltage", "dc", "geometry"])
         .apply(create_bus_data, include_groups=False)
         .reset_index()
     )
@@ -239,6 +260,7 @@ def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
         [
             "bus_id",
             "voltage",
+            "dc",
             "geometry",
             "contains",
             "country",
@@ -292,6 +314,9 @@ def split_overpassing_lines(
             continue
 
         nearby_buses = buses_epsgmod.iloc[possible_matches]
+        # A line can only connect to buses of its own polarity, so splitting
+        # it at a bus of the other one would only strand a stub there.
+        nearby_buses = nearby_buses[nearby_buses["dc"] == lines.at[line_index, "dc"]]
         bus_in_tol = nearby_buses[nearby_buses.geometry.distance(line_geom) <= tol]
 
         endpoint0 = line_geom.boundary.geoms[0]
@@ -354,15 +379,16 @@ def _create_merge_mapping(
 
     buses_virtual = gpd.sjoin(
         buses_virtual,
-        lines[["line_id", "geometry", "voltage", "circuits"]],
+        lines[["line_id", "geometry", "voltage", "dc", "circuits"]],
         how="left",
         predicate="touches",
     )
     buses_virtual = buses_virtual[
-        buses_virtual["voltage_left"] == buses_virtual["voltage_right"]
+        (buses_virtual["voltage_left"] == buses_virtual["voltage_right"])
+        & (buses_virtual["dc_left"] == buses_virtual["dc_right"])
     ]
-    buses_virtual = buses_virtual.drop(columns=["voltage_right"]).rename(
-        columns={"voltage_left": "voltage"}
+    buses_virtual = buses_virtual.drop(columns=["voltage_right", "dc_right"]).rename(
+        columns={"voltage_left": "voltage", "dc_left": "dc"}
     )
 
     counts = (
@@ -395,6 +421,7 @@ def _create_merge_mapping(
         [
             "line_id",
             "voltage",
+            "dc",
             "circuits",
             "length",
             "geometry",
@@ -423,6 +450,9 @@ def _create_merge_mapping(
         first_node = next(iter(component))
         circuits = graph.nodes[first_node].get("circuits")
         voltage = graph.nodes[first_node].get("voltage")
+        dc = bool(graph.nodes[first_node].get("dc"))
+        # Segments of one rated link share its rating; take it from any
+        # segment that carries one.
         geometry = linemerge(
             [graph.nodes[node].get("geometry") for node in subgraph.nodes()]
         )
@@ -454,6 +484,7 @@ def _create_merge_mapping(
                 "line_id": f"merged_{node_longest}+{len(contains_lines) - 1}",
                 "circuits": circuits,
                 "voltage": voltage,
+                "dc": dc,
                 "geometry": geometry,
                 "underground": underground,
                 "country": country,
@@ -468,6 +499,7 @@ def _create_merge_mapping(
         "line_id",
         "circuits",
         "voltage",
+        "dc",
         "geometry",
         "underground",
         "country",
@@ -597,39 +629,50 @@ def _merge_buses_to_stations(
     stations_all["polygon"] = stations_all["geometry"].copy()
 
     buses_all = gpd.sjoin(buses_all, stations_all, how="left", predicate="within")
-    buses_all = buses_all.drop_duplicates(subset=["station_id", "voltage"])
+    buses_all = buses_all.drop_duplicates(subset=["station_id", "voltage", "dc"])
 
     offset = 15  # metres
     geo_to_dist = Transformer.from_crs(geo_crs, distance_crs, always_xy=True)
     dist_to_geo = Transformer.from_crs(distance_crs, geo_crs, always_xy=True)
 
+    def level_bus_id(station_id: str, voltage: float, dc: bool) -> str:
+        # AC keeps the existing "{station}-{kV}" form; DC gets a suffix so it
+        # cannot collide with an AC bus of the same voltage.
+        return f"{station_id}-{int(voltage / 1000)}" + ("-dc" if dc else "")
+
     for station_id, group in buses_all.groupby("station_id"):
-        voltages = sorted(group["voltage"].unique(), reverse=True)
+        # One bus per (voltage, polarity) level, highest voltage first and
+        # AC before DC, which reproduces the previous order exactly when a
+        # station has no DC side.
+        levels = sorted(
+            set(zip(group["voltage"], group["dc"])), key=lambda lv: (-lv[0], lv[1])
+        )
         not_virtual = ~group.bus_id.str.startswith("virtual_")
-        if len(voltages) > 1:
+        if len(levels) > 1:
             poi_x, poi_y = geo_to_dist.transform(
                 group["poi"].values[0].x, group["poi"].values[0].y
             )
-            for idx, voltage in enumerate(voltages):
+            for idx, (voltage, dc) in enumerate(levels):
                 poi_x_offset = poi_x + offset * np.sin(
-                    np.pi / 4 + 2 * np.pi * idx / len(voltages)
+                    np.pi / 4 + 2 * np.pi * idx / len(levels)
                 ).round(4)
                 poi_y_offset = poi_y + offset * np.cos(
-                    np.pi / 4 + 2 * np.pi * idx / len(voltages)
+                    np.pi / 4 + 2 * np.pi * idx / len(levels)
                 ).round(4)
                 poi_offset = Point(dist_to_geo.transform(poi_x_offset, poi_y_offset))
 
-                group.loc[(group["voltage"] == voltage) & not_virtual, "bus_id"] = (
-                    station_id + "-" + str(int(voltage / 1000))
+                at_level = (group["voltage"] == voltage) & (group["dc"] == dc)
+                group.loc[at_level & not_virtual, "bus_id"] = level_bus_id(
+                    station_id, voltage, dc
                 )
-                group.loc[group["voltage"] == voltage, "geometry"] = poi_offset
+                group.loc[at_level, "geometry"] = poi_offset
 
             buses_all.loc[group.index, "bus_id"] = group["bus_id"]
             buses_all.loc[group.index, "geometry"] = group["geometry"]
         else:
-            voltage = voltages[0]
-            buses_all.loc[group.loc[not_virtual].index, "bus_id"] = (
-                station_id + "-" + str(int(voltage / 1000))
+            voltage, dc = levels[0]
+            buses_all.loc[group.loc[not_virtual].index, "bus_id"] = level_bus_id(
+                station_id, voltage, dc
             )
             buses_all.loc[group.index, "geometry"] = group["poi"]
 
@@ -673,14 +716,19 @@ def _map_endpoints_to_buses(
     lines_all = connection.copy().set_index(id_col)
 
     for coord in range(2):
-        endpoints = lines_all[["voltage", "geometry"]].copy()
+        endpoints = lines_all[["voltage", "dc", "geometry"]].copy()
         endpoints["geometry"] = get_point(
             endpoints.geometry.apply(_remove_loops_from_multiline), -1 * coord
         )
         endpoints = gpd.sjoin(endpoints, buses_all, how="left", predicate="intersects")
-        endpoints = endpoints[endpoints["voltage_left"] == endpoints["voltage_right"]]
-        endpoints = endpoints.drop(columns=["voltage_right"]).rename(
-            columns={"voltage_left": "voltage"}
+        # A line attaches only to a bus of its own voltage and polarity, as
+        # in PyPSA-Earth's set_lines_ids, which groups by (voltage, dc).
+        endpoints = endpoints[
+            (endpoints["voltage_left"] == endpoints["voltage_right"])
+            & (endpoints["dc_left"] == endpoints["dc_right"])
+        ]
+        endpoints = endpoints.drop(columns=["voltage_right", "dc_right"]).rename(
+            columns={"voltage_left": "voltage", "dc_left": "dc"}
         )
 
         lines_all[f"poi_perimeter{coord}"] = endpoints["poi_perimeter"]
@@ -781,8 +829,13 @@ def _extend_lines_to_buses(
 
 
 def _add_transformers(buses: gpd.GeoDataFrame, geo_crs: str) -> gpd.GeoDataFrame:
-    """All-pairs transformers between voltage-level buses of the same real station."""
-    buses_all = buses.copy().set_index("bus_id")
+    """All-pairs transformers between the AC voltage-level buses of each station.
+
+    DC buses are excluded: the AC and DC sides of a station are joined by
+    converters (see ``_add_converters``), never by a transformer, as in
+    PyPSA-Earth's get_transformers.
+    """
+    buses_all = buses[~buses["dc"]].copy().set_index("bus_id")
     columns = ["bus0", "bus1", "voltage_bus0", "voltage_bus1", "station_id", "geometry"]
     all_transformers = gpd.GeoDataFrame(
         columns=[*columns, "transformer_id"], crs=geo_crs
@@ -845,8 +898,22 @@ def build_network(
     ``station_id``) and ``buses_polygon`` (the substation polygons scoped to
     the buses that made it into the output, keyed by ``bus_id``).
     """
+    # Inputs written before DC support existed carry no dc column; they
+    # were AC-only by construction, so default to AC rather than fail.
+    substations = substations.copy()
+    lines = lines.copy()
+    for frame in (substations, lines):
+        if "dc" not in frame.columns:
+            frame["dc"] = False
+        frame["dc"] = frame["dc"].fillna(False).astype(bool)
+    if "converter" not in substations.columns:
+        substations["converter"] = False
+    substations["converter"] = substations["converter"].fillna(False).astype(bool)
+    if "p_nom_mw" not in lines.columns:
+        lines["p_nom_mw"] = np.nan
+
     buses = _treat_under_construction(
-        substations.copy(), remove_under_construction, remove_after
+        substations, remove_under_construction, remove_after
     )
 
     buses_polygon = substations_polygon[
@@ -1032,7 +1099,7 @@ if __name__ == "__main__":
         snakemake.params.station_merge_radius_m,
     )
     logger.info(
-        "Built %d buses, %d lines, and %d transformers.",
+        "Built %d buses, %d lines (%d DC), %d transformers, and %d converters.",
         len(buses),
         len(lines),
         len(transformers),
