@@ -56,6 +56,7 @@ LINE_COLUMNS = [
     "bus1",
     "voltage_kv",
     "dc",
+    "p_nom_mw",
     "circuits",
     "length_m",
     "underground",
@@ -422,6 +423,7 @@ def _create_merge_mapping(
             "line_id",
             "voltage",
             "dc",
+            "p_nom_mw",
             "circuits",
             "length",
             "geometry",
@@ -453,6 +455,10 @@ def _create_merge_mapping(
         dc = bool(graph.nodes[first_node].get("dc"))
         # Segments of one rated link share its rating; take it from any
         # segment that carries one.
+        p_nom_mw = pd.Series(
+            [graph.nodes[node].get("p_nom_mw") for node in subgraph.nodes()],
+            dtype=float,
+        ).max()
         geometry = linemerge(
             [graph.nodes[node].get("geometry") for node in subgraph.nodes()]
         )
@@ -485,6 +491,7 @@ def _create_merge_mapping(
                 "circuits": circuits,
                 "voltage": voltage,
                 "dc": dc,
+                "p_nom_mw": p_nom_mw,
                 "geometry": geometry,
                 "underground": underground,
                 "country": country,
@@ -500,6 +507,7 @@ def _create_merge_mapping(
         "circuits",
         "voltage",
         "dc",
+        "p_nom_mw",
         "geometry",
         "underground",
         "country",
