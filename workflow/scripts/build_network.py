@@ -129,7 +129,11 @@ def _remove_loops_from_multiline(multiline: Any) -> Any:
 
 
 def _add_line_endings(lines: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Create deterministic virtual buses at each unique (voltage, endpoint) combination."""
+    """Create deterministic virtual buses at each unique (voltage, endpoint)
+    combination.
+
+    A virtual bus inherits its attributes from the lines that meet there.
+    """
     line_data = lines[
         [
             "voltage",
