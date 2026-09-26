@@ -12,9 +12,11 @@ A modular Snakemake workflow for building a model of transmission power grid for
 
 ## About
 
-`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. Custom data can be injected by providing input files of unified structure. The `grid-builder` workflow can be imported into another `snakemake`based project.
+`grid-builder` is a modular `snakemake` workflow that retrieves [**OpenStreetMap**](https://osm.org) power infrastructure and builds a generic high-voltage network. Custom data can be injected by providing input files of unified structure. The `grid-builder` workflow can be imported into another `snakemake`based project.
 
-The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
+You can help to impove quality of [**OpenStreetMap data**] by joining the [**MapYourGrid initiative**](https://mapyourgrid.org). Many resources as [video tutorials](https://www.youtube.com/channel/UC52jOcw_6_7iTMW-lXwLrQQ) or [starter-kit](https://mapyourgrid.org/starter-kit/) help to improve open data that is used by GridBuilder to build the grid topology.
+
+The GridBuilder workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
 
 Buses and lines carry the country they belong to, along with their construction status and planned start date. Country information is essential to resolve assign a correct line types which is strongly regional-specific.
 
@@ -26,7 +28,7 @@ Currently implemented:
 
 1. Retrieve OSM substations, lines, cables, and (optionally) circuit relations by country, either from a cached local Geofabrik PBF extract or the live Overpass API.
 2. Clean the raw retrieval output, filtering voltage, frequency, construction status, and future assets, and grouping relation member ways into one line per real-world circuit.
-3. Merge nearby stations and line endpoints into generic buses, AC lines, and transformers.
+3. Merge nearby stations and line endpoints into generic buses, AC and DC lines, and transformers.
 4. Build an interactive map of the resulting network (`map.html`).
 
 ## Configuration
@@ -104,6 +106,17 @@ rebuild the installed environment with `pixi reinstall --locked`.
 `grid-builder` is released as free software under the [MIT](LICENSE) license. Different licenses and terms of use may apply to input data, e.g. OpenStreetMap data is subject to the [Open Database License](https://opendatacommons.org/licenses/odbl).
 
 ## References & related work
+
+GridBuilder is built on top of other initiatives which created and improved open power infrastructure data, developed and ways to integrate those data into energy modelling workflows.
+
+The list bellow is contains a non-exaustive list of links and references, and can be absolutely expanded and improved.
+
+### Open data and open source projects
+
+* [OpenStreetMap](https://osmfoundation.org/) initiative which is the biggest crowd-sourced database of geospatial information
+* [MapYourGrid](https://mapyourgrid.org/) initiative that empower individuals, communities and nations around the world to map the electrical grid 
+
+### Academic publications
 
 * Jonas Hörsch et al. 2018. PyPSA-Eur: An open optimisation model of the European transmission system, *Energy Strategy Reviews*, Volume 22. https://doi.org/10.1016/j.esr.2018.08.012
 * Maximilian Parzen et al. 2023. PyPSA-Earth: A new global open energy system optimization model demonstrated in Africa, *Applied Energy*, Volume 341. https://doi.org/10.1016/j.apenergy.2023.121096
