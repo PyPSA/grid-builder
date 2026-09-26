@@ -45,6 +45,42 @@ _TAG_CORRECTIONS: dict[str, list[dict[str, Any]]] = load_internal_yaml(
 # warning in _region_ac_hz is logged once per border rather than once per row.
 _AC_FREQUENCY_CONFLICTS: set[str] = set()
 
+# Output schemas, shared by the populated and the empty-input paths so a
+# country with no substations or no lines still yields the same columns.
+SUBSTATION_COLUMNS = [
+    "bus_id",
+    "voltage",
+    "dc",
+    "converter",
+    "country",
+    "under_construction",
+    "start_date",
+    "geometry",
+    "polygon",
+    "contains",
+]
+LINE_COLUMNS = [
+    "line_id",
+    "circuits",
+    "voltage",
+    "dc",
+    "p_nom_mw",
+    "country",
+    "underground",
+    "under_construction",
+    "start_date",
+    "geometry",
+    "contains",
+]
+
+
+def _empty_frame(columns: list[str], crs: str) -> gpd.GeoDataFrame:
+    """An empty GeoDataFrame with the given non-geometry ``columns``."""
+    return gpd.GeoDataFrame(
+        {column: [] for column in columns}, geometry=gpd.GeoSeries([], crs=crs), crs=crs
+    )
+
+
 def _create_linestring(row: pd.Series) -> LineString:
     """Build a LineString from a raw OSM geometry list of ``{lon, lat}`` points."""
     coords = [(coord["lon"], coord["lat"]) for coord in row["geometry"]]
@@ -646,19 +682,7 @@ def _aggregate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
-    return df_lines[
-        [
-            "line_id",
-            "circuits",
-            "voltage",
-            "country",
-            "underground",
-            "under_construction",
-            "start_date",
-            "geometry",
-            "contains",
-        ]
-    ]
+    return df_lines[LINE_COLUMNS]
 
 
 def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
@@ -666,19 +690,7 @@ def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
     df_lines = df_lines.rename(columns={"id": "line_id", "power": "tag_type"})
     df_lines["underground"] = df_lines["tag_type"] == "cable"
     df_lines["contains"] = df_lines["line_id"].apply(lambda x: [x.split("-")[0]])
-    df_lines = df_lines[
-        [
-            "line_id",
-            "circuits",
-            "voltage",
-            "country",
-            "underground",
-            "under_construction",
-            "start_date",
-            "geometry",
-            "contains",
-        ]
-    ]
+    df_lines = df_lines[LINE_COLUMNS]
     df_lines["circuits"] = df_lines["circuits"].astype(int)
     df_lines["voltage"] = df_lines["voltage"].astype(int)
     return df_lines
@@ -1353,7 +1365,7 @@ def clean(
             clean_lines = _extend_lines_to_substations(clean_lines, substation_polygons)
         clean_lines = gpd.GeoDataFrame(clean_lines, geometry="geometry", crs=crs)
     else:
-        clean_lines = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
+        clean_lines = _empty_frame([c for c in LINE_COLUMNS if c != "geometry"], crs)
 
     if "polygon" in substation_polygons.columns:
         substation_polygons = substation_polygons.drop(columns=["geometry"])
