@@ -86,28 +86,56 @@ def _apply_corrections(column: pd.Series, steps: list[dict[str, Any]]) -> pd.Ser
     return column
 
 
+def _strip_to(column: pd.Series, tag: str, allowed: str) -> pd.Series:
+    """Drop every character outside ``allowed``, reporting what was unmapped first.
+
+    The strip is a catch-all: whatever the corrections above did not handle,
+    it reduces to bare digits. That is right for stray units and punctuation
+    but wrong for a value encoding arithmetic, where "2x3" becomes 23 rather
+    than 6. PyPSA-Earth's replacement tables grew precisely because it logs
+    the values it could not map, so log them here too instead of silently
+    turning a tag into a plausible but wrong number.
+    """
+    # Only characters sitting *between* digits are reported: those are the ones
+    # whose removal splices two numbers into one ("2x3" -> 23). A stray unit or
+    # bracket at either end ("220000 V") strips away harmlessly and would
+    # otherwise drown the real signal in noise.
+    leftover = column[column.str.contains(f"[0-9][^{allowed}]+[0-9]", regex=True)]
+    if not leftover.empty:
+        counts = leftover.value_counts()
+        logger.warning(
+            "%d %s value(s) were not matched by any correction and will be reduced "
+            "to their digits, which may be wrong. Add them to "
+            "tag_corrections.yaml if so: %s",
+            int(counts.sum()),
+            tag,
+            ", ".join(f"{value!r} (x{n})" for value, n in counts.head(10).items()),
+        )
+    return column.str.replace(f"[^{allowed}]", "", regex=True)
+
+
 def _clean_voltage(column: pd.Series) -> pd.Series:
     """Normalise a raw ``voltage`` tag column to semicolon-separated volts."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["voltage"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "voltage", "0-9;")
 
 
 def _clean_circuits(column: pd.Series) -> pd.Series:
     """Normalise a raw ``circuits`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["circuits"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "circuits", "0-9;")
 
 
 def _clean_cables(column: pd.Series) -> pd.Series:
     """Normalise a raw ``cables`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["cables"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "cables", "0-9;")
 
 
 def _clean_wires(column: pd.Series) -> pd.Series:
     """Normalise a raw ``wires`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["wires"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "wires", "0-9;")
 
 
 def _check_voltage(voltage: str, list_voltages: Any) -> bool:
@@ -119,7 +147,8 @@ def _check_voltage(voltage: str, list_voltages: Any) -> bool:
 def _clean_frequency(column: pd.Series) -> pd.Series:
     """Normalise a raw ``frequency`` tag column to semicolon-separated Hz values."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["frequency"])
-    return column.str.replace(r"[^0-9;.]", "", regex=True)
+    return _strip_to(column, "frequency", "0-9;.")
+
 
 def _frequency_kind(
     value: str, dc_hz: float, accepted_ac_hz: list[float], tolerance_hz: float
