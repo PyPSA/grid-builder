@@ -5,8 +5,17 @@
 # applied verbatim, so add new entries at the point in the sequence where
 # they belong, not just at the end.
 #
-# Ported verbatim from PyPSA-Eur's clean_osm_data.py (fix-osm branch),
-# including one inert entry: voltage's "400/220/110 kV'" pattern contains an
+# The code merges the mappings from clean_osm_data:
+# - global ones from PyPSA-Earth's (repl_circuits, repl_cables, repl_voltage) 
+# - regional from PyPSA-Eur's regional values (fix-osm branch)
+# Those cover values that encode arithmetic ("2x3", "3+3") or a range ("2-1") 
+# which would otherwise turn into a concatenation, e.g. transformimg "2x3" 
+# into 23 cables instead of 6. 
+
+# Entries are `exact` (whole-value) rather than `replace` (substring) so they
+# cannot corrupt a longer freeform tag that happens to contain them.
+#
+# The port includes one inert entry: voltage's "400/220/110 kV'" pattern contains an
 # uppercase V, but by the time it runs the column is already lowercased, so
 # it can never match. Preserved as-is rather than "fixed" to keep behaviour
 # identical to the reference.
@@ -27,6 +36,11 @@ voltage:
   - exact: ["med", "33000"]
   - exact: ["m", "33000"]
   - exact: ["high", "150000"]
+  # earth: repl_voltage. Must precede the "kv" -> "000" step below, which
+  # would otherwise read "19.1 kv" as 191000 instead of 19100.
+  - exact: ["19.1 kv", "19100"]
+  - exact: ["2*220000", "220000;220000"]
+  - exact: ["kv30", "30000"]
   - replace: ["23000-109000", "109000"]
   - replace: ["380000>220000", "380000;220000"]
   - replace: [":", ";"]
@@ -42,11 +56,43 @@ circuits:
   - lower: true
   - replace: ["1,5", "3"]
   - replace: ["1/3", "1"]
+  # earth: repl_circuits. "2/3" and "2-1" would strip to 23 and 21.
+  - exact: ["2/3", "2"]
+  - exact: ["2-1", "2"]
+  - exact: ["1;1 disused", "1;0"]
+  - exact: ["single", "1"]
+  - exact: ["1.", "1"]
+  # A typo still means at least one circuit, per PyPSA-Earth's comment.
+  - exact: ["`", "1"]
+  - exact: ["^1", "1"]
+  - exact: ["e", "1"]
+  - exact: ["d", "1"]
 
 cables:
   - lower: true
   - replace: ["1/3", "1"]
   - replace: ["3x2;2", "3"]
+  # earth: repl_cables. Every arithmetic form below would otherwise strip to
+  # a concatenation: "3+3" to 33 cables, "6+1" to 61, "2x3" to 23.
+  - exact: ["3+3", "6"]
+  - exact: ["6+1", "6"]
+  - exact: ["2x3", "6"]
+  - exact: ["3x2", "6"]
+  - exact: ["2x2", "4"]
+  - exact: ["2-1", "3"]
+  - exact: ["1 (looped - haul & return) + 1 power wire", "1"]
+  # Zero live conductors: the way is a ground wire or a retired cable.
+  - exact: ["1 disused", "0"]
+  - exact: ["ground", "0"]
+  - exact: ["3;3 disused", "3;0"]
+  - exact: ["single", "1"]
+  - exact: ["triple", "3"]
+  - exact: ["line", "1"]
+  - exact: ["partial", "1"]
+  - exact: ["`", "1"]
+  - exact: ["^1", "1"]
+  - exact: ["e", "1"]
+  - exact: ["d", "1"]
 
 wires:
   - lower: true
