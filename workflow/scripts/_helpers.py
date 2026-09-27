@@ -63,6 +63,16 @@ def load_config_defaults() -> Any:
         return yaml.safe_load(handle)
 
 
+def custom_files(files: list[str], feature: str) -> list[str]:
+    """Custom raw files for one feature, cleaned alongside the retrieved ones.
+
+    Selected by filename, the same ``{country}_{feature}.json`` convention
+    retrieval writes and ``clean`` reads the country back out of, so a
+    custom file needs no special handling downstream.
+    """
+    return [path for path in files if Path(path).stem.endswith(f"_{feature}")]
+
+
 # Defaults for functions called outside Snakemake, whose rules pass their own
 # resolved config values instead.
 GEO_CRS: str = load_config_defaults()["crs"]["geo"]
