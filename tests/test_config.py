@@ -32,12 +32,27 @@ from workflow.scripts._schema import (
         {"network": {"remove_under_construction": "not-a-bool"}},
         {"crs": {"typo": True}},
         {"regions": {"BE": {"frequency_hz": {"typo": True}}}},
+        {"custom_data": {"typo": True}},
+        {"custom_data": {"files": ["data/lines.json"]}},
+        {"custom_data": {"files": ["data/BE_not_a_feature.json"]}},
     ],
 )
 def test_invalid_config(config):
     """Reject invalid settings before starting expensive retrieval jobs."""
     with pytest.raises(ValidationError):
         validate_config(config)
+
+
+def test_custom_data_accepts_retrieval_style_filenames():
+    """A custom file named like a retrieved one validates.
+
+    ``clean`` reads the country back out of the filename, so that naming is
+    what lets a custom file need no special handling downstream.
+    """
+    config = validate_config(
+        {"custom_data": {"files": ["data/custom/BE_lines_way.json"]}}
+    )
+    assert config.custom_data.files == ["data/custom/BE_lines_way.json"]
 
 
 def test_generated_config_matches_repository(tmp_path):
