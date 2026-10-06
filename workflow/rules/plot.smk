@@ -15,7 +15,7 @@ rule build_interactive_map:
     log:
         "<logs>/build_interactive_map.log",
     conda:
-        "../envs/network.yaml"
+        "../envs/module.yaml"
     threads: 1
     params:
         crs=config["crs"],

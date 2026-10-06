@@ -40,7 +40,7 @@ rule clean:
     log:
         "<logs>/clean.log",
     conda:
-        "../envs/network.yaml"
+        "../envs/module.yaml"
     threads: 1
     params:
         network=config["network"],
@@ -69,7 +69,7 @@ rule build_network:
     log:
         "<logs>/build_network.log",
     conda:
-        "../envs/network.yaml"
+        "../envs/module.yaml"
     threads: 1
     params:
         station_merge_radius_m=config["network"]["station_merge_radius_m"],

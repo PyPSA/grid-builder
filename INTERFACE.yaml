@@ -1,4 +1,6 @@
 # Module Input-Output structure for automated docs generation
+convention_version: v1.0.0
+
 pathvars:
   snakemake_defaults:
     logs:

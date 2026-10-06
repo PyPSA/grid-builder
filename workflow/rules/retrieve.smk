@@ -34,7 +34,7 @@ if config["retrieve"]["source"] == "geofabrik":
         log:
             "<logs>/retrieve_osm_pbf/{country}.log",
         conda:
-            "../envs/retrieve.yaml"
+            "../envs/module.yaml"
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
@@ -53,7 +53,7 @@ elif config["retrieve"]["source"] == "overpass":
         log:
             "<logs>/retrieve_osm_overpass/{country}.log",
         conda:
-            "../envs/retrieve.yaml"
+            "../envs/module.yaml"
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
