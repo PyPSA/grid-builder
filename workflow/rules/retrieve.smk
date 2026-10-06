@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-from pathlib import Path
 
 # Both retrieve_osm_pbf and retrieve_osm_overpass produce this same fixed
 # set of six files per country (routes_relation included even when
@@ -40,7 +39,7 @@ if config["retrieve"]["source"] == "geofabrik":
         params:
             include_relations=config["network"]["include_relations"],
             force_redownload=config["retrieve"]["force_redownload"],
-            data_dir=str(Path(workflow.basedir).parent / "data" / "earth-osm"),
+            data_dir=workflow.pathvars.apply("<resources>/automatic/earth-osm"),
         message:
             "Retrieve OSM power features for one country from a local PBF file."
         script:
@@ -58,7 +57,7 @@ elif config["retrieve"]["source"] == "overpass":
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
-            overpass_api=config["retrieve"]["overpass_api"].model_dump(mode="json"),
+            overpass_api=config["retrieve"]["overpass_api"],
         message:
             "Retrieve OSM power features for one country from the Overpass API."
         script:

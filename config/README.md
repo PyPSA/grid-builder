@@ -47,3 +47,9 @@ also lets you point at your own or a faster mirror instance instead of the
 shared public endpoint, without touching the checked-in default.
 
 The generated [schema](./config.schema.json) describes every option.
+
+After adding or removing a `config/regions/config.<ISO>.yaml` file, run
+`pixi run generate-config`. It discovers the regional files and generates the
+sorted `config/regions/index.yaml` manifest automatically. Commit the generated
+index with the regional files so remote imports can discover them without a
+local checkout. Do not edit the index manually; a test checks that it is current.

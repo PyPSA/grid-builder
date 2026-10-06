@@ -43,12 +43,9 @@ rule clean:
         "../envs/network.yaml"
     threads: 1
     params:
-        network=config["network"].model_dump(mode="json"),
-        regions={
-            code: value.model_dump(mode="json")
-            for code, value in config["regions"].items()
-        },
-        crs=config["crs"].model_dump(mode="json"),
+        network=config["network"],
+        regions=config["regions"],
+        crs=config["crs"],
     message:
         "Cleaning retrieved OSM power features."
     script:
@@ -78,7 +75,7 @@ rule build_network:
         station_merge_radius_m=config["network"]["station_merge_radius_m"],
         remove_under_construction=config["network"]["remove_under_construction"],
         remove_after=config["network"]["remove_after"],
-        crs=config["crs"].model_dump(mode="json"),
+        crs=config["crs"],
     message:
         "Building a connected generic OSM network."
     script:

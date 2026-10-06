@@ -7,15 +7,9 @@
 Logging setup, internal data loading, shared geometry constants, and
 mock_snakemake for testing.
 
-Other scripts import this module as ``from scripts._helpers import ...``,
-not ``workflow.scripts._helpers``. That plain form resolves in both places
-these scripts run: under a real
-Snakemake ``script:`` execution, Snakemake puts ``workflow/`` on ``sys.path``
-(via the Snakefile's own ``sys.path.insert(0, workflow.basedir)``, captured
-and propagated into every script's execution preamble); under pytest,
-``pytest.ini``'s ``pythonpath`` setting puts ``workflow/`` on ``sys.path``
-too, alongside the project root that lets test files import
-``workflow.scripts.X``.
+Scripts import this module directly from their own script directory. The Snakefile caches
+it and its internal YAML dependencies using workflow.source_path(); Snakemake
+adds the cached script directory to sys.path for both local and remote jobs.
 """
 
 import logging
@@ -42,18 +36,7 @@ def configure_logging(log_path: str) -> None:
 
 
 def load_internal_yaml(filename: str) -> Any:
-    """Load a YAML file from workflow/internal/, resolved relative to this checkout.
-
-    Uses ``__file__`` rather than ``workflow.source_path()``: this is called
-    from plain executed scripts (via Snakemake's ``script:`` directive),
-    which only get a ``snakemake`` object in scope, not the ``workflow``
-    object that ``source_path()`` needs — that API is only reachable from
-    Snakefile-level rule code. Resolving via ``__file__`` still works
-    correctly when this project is used as a Snakemake submodule, because
-    Snakemake's own ``script:`` resolution already points each script at its
-    real location inside this checkout (the same reasoning ``mock_snakemake``
-    below relies on for ``script_dir``).
-    """
+    """Load an internal YAML file explicitly cached by the Snakefile."""
     path = Path(__file__).resolve().parent.parent / "internal" / filename
     with open(path) as handle:
         return yaml.safe_load(handle)

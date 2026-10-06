@@ -1,13 +1,35 @@
+import hashlib
+import importlib.util
 import sys
-from pathlib import Path
 
 import yaml
 from snakemake.utils import min_version
 
-sys.path.insert(0, workflow.basedir)
-from scripts._schema import load_region_configs, validate_config
-
 min_version("9.19")
+
+# Resolve auxiliary files through Snakemake so remote modules are cached too.
+# A path-specific name keeps separate grid-builder versions isolated in one host.
+_schema_path = workflow.source_path("scripts/_schema.py")
+_schema_name = (
+    f"_grid_builder_schema_{hashlib.sha256(str(_schema_path).encode()).hexdigest()}"
+)
+_schema_spec = importlib.util.spec_from_file_location(_schema_name, str(_schema_path))
+_schema = importlib.util.module_from_spec(_schema_spec)
+sys.modules[_schema_name] = _schema
+_schema_spec.loader.exec_module(_schema)
+
+# Snakemake adds the cached script directory to each script's import path.
+workflow.source_path("scripts/_helpers.py")
+for filename in ("colors.yaml", "tag_corrections.yaml"):
+    workflow.source_path(f"internal/{filename}")
+
+# Remote directories cannot be enumerated: the manifest lists shipped overrides.
+with open(workflow.source_path("../config/regions/index.yaml")) as f:
+    _region_codes = yaml.safe_load(f)
+_region_paths = {
+    code: workflow.source_path(f"../config/regions/config.{code}.yaml")
+    for code in _region_codes
+}
 
 
 # Define pathvars to expose OSM retrieval outputs for downstream use.
@@ -20,9 +42,9 @@ pathvars:
 configfile: workflow.source_path("../config/config.yaml")
 
 
-config = validate_config(
-    load_region_configs(config, Path(workflow.basedir).parent / "config" / "regions")
-)
+config = _schema.validate_config(
+    _schema.load_region_configs(config, _region_paths)
+).model_dump(mode="json")
 
 # Load internal settings separately so users cannot modify them.
 with open(workflow.source_path("internal/settings.yaml"), "r") as f:
