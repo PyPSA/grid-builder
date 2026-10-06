@@ -41,8 +41,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import osmium
+from _helpers import configure_logging
 from earth_osm.regions import download_region_pbf, get_region_tuple
-from scripts._helpers import configure_logging
 
 if TYPE_CHECKING:
     snakemake: Any
@@ -334,7 +334,7 @@ def _extract_from_filtered_pbf(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("retrieve_osm_pbf", country="BE")
 

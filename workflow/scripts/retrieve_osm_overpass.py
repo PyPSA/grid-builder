@@ -27,9 +27,9 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import requests
+from _helpers import configure_logging
 from earth_osm.regions import get_region_tuple
 from requests.adapters import HTTPAdapter
-from scripts._helpers import configure_logging
 from urllib3.util.retry import Retry
 
 if TYPE_CHECKING:
@@ -172,7 +172,7 @@ def retrieve_from_overpass(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("retrieve_osm_overpass", country="BE")
 

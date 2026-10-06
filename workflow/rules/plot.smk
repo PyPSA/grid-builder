@@ -11,15 +11,15 @@ rule build_interactive_map:
         stations_polygon=rules.build_network.output.stations_polygon,
         buses_polygon=rules.build_network.output.buses_polygon,
     output:
-        map="<resources>/map.html",
+        map="<map>",
     log:
         "<logs>/build_interactive_map.log",
     conda:
-        "../envs/network.yaml"
+        "../envs/module.yaml"
     threads: 1
     params:
-        crs=config["crs"].model_dump(mode="json"),
-        interactive_map=config["interactive_map"].model_dump(mode="json"),
+        crs=config["crs"],
+        interactive_map=config["interactive_map"],
     message:
         "Building an interactive OSM network map."
     script:

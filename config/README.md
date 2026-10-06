@@ -46,4 +46,13 @@ missing user agent risks being rate-limited or blocked. `retrieve.overpass_api.u
 also lets you point at your own or a faster mirror instance instead of the
 shared public endpoint, without touching the checked-in default.
 
-The generated [schema](./config.schema.json) describes every option.
+The generated [schema](../workflow/internal/config.schema.yaml) describes every
+option using JSON Schema in YAML format. Pydantic models remain the validation
+source of truth; `pixi run generate-config` updates the schema, default config,
+and the JSON copy at `config/config.schema.json` together.
+
+After adding or removing a `config/regions/config.<ISO>.yaml` file, run
+`pixi run generate-config`. It discovers the regional files and generates the
+sorted `config/regions/index.yaml` manifest automatically. Commit the generated
+index with the regional files so remote imports can discover them without a
+local checkout. Do not edit the index manually; a test checks that it is current.

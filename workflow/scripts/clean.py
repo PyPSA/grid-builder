@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from scripts._helpers import BUS_TOL, configure_logging, load_internal_yaml
+from _helpers import BUS_TOL, configure_logging, load_internal_yaml
 from shapely.algorithms.polylabel import polylabel
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
@@ -748,7 +748,9 @@ _RELATION_TAG_COLUMNS = [
 ]
 
 
-def _load_elements(paths: list[str], element_type: str) -> pd.DataFrame:
+def _load_elements(
+    paths: list[str], element_type: str, countries: dict[str, str] | None = None
+) -> pd.DataFrame:
     """Load our own raw Overpass-JSON-shaped retrieval output for one element type.
 
     Both retrieve_osm_pbf.py (pyosmium reading a local PBF) and
@@ -763,7 +765,11 @@ def _load_elements(paths: list[str], element_type: str) -> pd.DataFrame:
             continue
         with open(path) as handle:
             payload = json.load(handle)
-        country = Path(path).stem.split("_", maxsplit=1)[0]
+        country = (
+            countries[path]
+            if countries is not None
+            else Path(path).stem.split("_", maxsplit=1)[0]
+        )
         elements = [
             e for e in payload.get("elements", []) if e.get("type") == element_type
         ]
@@ -796,11 +802,16 @@ def _flatten_tags(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 
 
 def _import_lines_and_cables(
-    line_paths: list[str], cable_paths: list[str]
+    line_paths: list[str],
+    cable_paths: list[str],
+    countries: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Read lines_way/cables_way JSON into the shape ``_clean_lines`` expects."""
     frame = pd.concat(
-        [_load_elements(line_paths, "way"), _load_elements(cable_paths, "way")],
+        [
+            _load_elements(line_paths, "way", countries),
+            _load_elements(cable_paths, "way", countries),
+        ],
         ignore_index=True,
     )
     frame = _flatten_tags(frame, _LINE_TAG_COLUMNS)
@@ -812,14 +823,16 @@ def _import_lines_and_cables(
     return frame.reset_index(drop=True)
 
 
-def _import_substation_relations(paths: list[str]) -> pd.DataFrame:
+def _import_substation_relations(
+    paths: list[str], countries: dict[str, str] | None = None
+) -> pd.DataFrame:
     """Build one polygon per substation relation from its non-node members.
 
     Excludes members with an empty/"incoming_line"/"substation"/"inner" role
     (the actual boundary is only the "outer" ring), linemerges the rest, and
     takes the convex hull as the substation's polygon.
     """
-    df_relations = _load_elements(paths, "relation")
+    df_relations = _load_elements(paths, "relation", countries)
     if df_relations.empty:
         return df_relations
 
@@ -861,19 +874,24 @@ def _import_substation_relations(paths: list[str]) -> pd.DataFrame:
     return df_relations.dropna(subset=["geometry"]).reset_index(drop=True)
 
 
-def _import_routes_relation(paths: list[str]) -> pd.DataFrame:
+def _import_routes_relation(
+    paths: list[str], countries: dict[str, str] | None = None
+) -> pd.DataFrame:
     """Read routes_relation JSON into the shape ``_create_line`` expects.
 
     Unlike substation relations, a route relation's ``members`` column is
     kept as-is (not converted to a polygon) — ``_create_line`` merges the
     member ways' own geometry into the relation's line.
     """
-    frame = _load_elements(paths, "relation")
+    frame = _load_elements(paths, "relation", countries)
     return _flatten_tags(frame, _RELATION_TAG_COLUMNS)
 
 
 def _import_substations(
-    way_paths: list[str], node_paths: list[str], relation_paths: list[str]
+    way_paths: list[str],
+    node_paths: list[str],
+    relation_paths: list[str],
+    countries: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Read substations_way/node/relation JSON into ``_clean_substations`` shape.
 
@@ -889,7 +907,7 @@ def _import_substations(
     ``substations_node`` query, added for parity between the two
     retrieve.source options.
     """
-    df_way = _load_elements(way_paths, "way")
+    df_way = _load_elements(way_paths, "way", countries)
     df_way = df_way[
         df_way["geometry"].apply(lambda g: isinstance(g, list) and len(g) >= 1)
     ]
@@ -899,7 +917,7 @@ def _import_substations(
             lambda coords: _create_polygon({"geometry": coords})
         )
 
-    df_node = _load_elements(node_paths, "node")
+    df_node = _load_elements(node_paths, "node", countries)
     df_node = df_node[
         df_node["geometry"].apply(lambda g: isinstance(g, list) and len(g) >= 1)
     ]
@@ -909,7 +927,7 @@ def _import_substations(
             lambda coords: Point(coords[0]["lon"], coords[0]["lat"])
         )
 
-    df_relation = _import_substation_relations(relation_paths)
+    df_relation = _import_substation_relations(relation_paths, countries)
     df_relation = _flatten_tags(df_relation, _SUBSTATION_TAG_COLUMNS)
 
     df_way["is_node"] = False
@@ -957,6 +975,7 @@ def clean(
     network: dict[str, Any],
     regions: dict[str, Any],
     geo_crs: str,
+    countries: dict[str, str] | None = None,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """Return clean substation buses, substation polygons, and AC lines/cables.
 
@@ -964,7 +983,9 @@ def clean(
     ``substations_way``, ``substations_node``, ``substations_relation``,
     ``routes_relation``) to the list of per-country JSON files retrieved for
     it. A feature with no paths (e.g. ``routes_relation`` when
-    ``include_relations`` is off) is simply skipped.
+    ``include_relations`` is off) is simply skipped. ``countries`` maps input
+    paths to ISO codes so rewiring filenames preserves regional settings.
+    Without it, standalone callers retain the legacy filename convention.
     """
     crs = geo_crs
     min_voltage_ac = network["minimum_voltage_kv"] * 1000  # V
@@ -976,6 +997,7 @@ def clean(
         inputs.get("substations_way", []),
         inputs.get("substations_node", []),
         inputs.get("substations_relation", []),
+        countries,
     )
     if df_substations.empty:
         empty_buses = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
@@ -1046,7 +1068,7 @@ def clean(
     route_paths = inputs.get("routes_relation", [])
     if route_paths:
         logger.info("Importing power route relations.")
-        df_relation = _import_routes_relation(route_paths)
+        df_relation = _import_routes_relation(route_paths, countries)
         if not df_relation.empty:
             df_relation = _drop_duplicate_lines(df_relation)
             df_relation["under_construction"] = (
@@ -1125,7 +1147,7 @@ def clean(
     # --- AC lines/cables via individual ways ---------------------------
     logger.info("Importing lines and cables.")
     df_lines = _import_lines_and_cables(
-        inputs.get("lines_way", []), inputs.get("cables_way", [])
+        inputs.get("lines_way", []), inputs.get("cables_way", []), countries
     )
     if not df_lines.empty:
         df_lines = _drop_duplicate_lines(df_lines)
@@ -1197,7 +1219,7 @@ def clean(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("clean")
 
@@ -1208,6 +1230,12 @@ if __name__ == "__main__":
         snakemake.params.network,
         snakemake.params.regions,
         snakemake.params.crs["geo"],
+        {
+            path: country
+            for paths in inputs.values()
+            if paths
+            for path, country in zip(paths, snakemake.params.countries, strict=True)
+        },
     )
     logger.info(
         "Retained %d buses, %d substation polygons, and %d AC lines/cables.",

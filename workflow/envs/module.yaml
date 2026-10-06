@@ -1,0 +1,20 @@
+name: module
+channels:
+- conda-forge
+- bioconda
+- nodefaults
+dependencies:
+- python >=3.12,<3.13
+- pyproj >=3.7,<4
+- pyyaml >=6,<7
+- earth-osm >=3.0.2
+- geopandas >=1.0,<2
+- networkx >=3,<4
+- numpy >=2,<3
+- osmium-tool >=1.19,<2
+- pandas >=2,<3
+- pyogrio >=0.10,<1
+- pyosmium >=4,<5
+- pydeck >=0.9,<1
+- requests >=2,<3
+- shapely >=2,<3

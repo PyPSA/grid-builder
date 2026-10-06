@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-from pathlib import Path
 
 # Both retrieve_osm_pbf and retrieve_osm_overpass produce this same fixed
 # set of six files per country (routes_relation included even when
@@ -21,10 +20,7 @@ _OSM_FEATURES = [
     "substations_relation",
     "routes_relation",
 ]
-_OSM_OUTPUTS = {
-    feature: f"<resources>/retrieve/{{country}}_{feature}.json"
-    for feature in _OSM_FEATURES
-}
+_OSM_OUTPUTS = {feature: f"<osm_{feature}>" for feature in _OSM_FEATURES}
 
 
 if config["retrieve"]["source"] == "geofabrik":
@@ -35,12 +31,12 @@ if config["retrieve"]["source"] == "geofabrik":
         log:
             "<logs>/retrieve_osm_pbf/{country}.log",
         conda:
-            "../envs/retrieve.yaml"
+            "../envs/module.yaml"
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
             force_redownload=config["retrieve"]["force_redownload"],
-            data_dir=str(Path(workflow.basedir).parent / "data" / "earth-osm"),
+            data_dir=workflow.pathvars.apply("<resources>/automatic/earth-osm"),
         message:
             "Retrieve OSM power features for one country from a local PBF file."
         script:
@@ -54,11 +50,11 @@ elif config["retrieve"]["source"] == "overpass":
         log:
             "<logs>/retrieve_osm_overpass/{country}.log",
         conda:
-            "../envs/retrieve.yaml"
+            "../envs/module.yaml"
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
-            overpass_api=config["retrieve"]["overpass_api"].model_dump(mode="json"),
+            overpass_api=config["retrieve"]["overpass_api"],
         message:
             "Retrieve OSM power features for one country from the Overpass API."
         script:
@@ -68,7 +64,6 @@ elif config["retrieve"]["source"] == "overpass":
 rule retrieve_osm_all:
     input:
         expand(
-            "<resources>/retrieve/{country}_{feature}.json",
+            [workflow.pathvars.apply(path) for path in _OSM_OUTPUTS.values()],
             country=config["countries"],
-            feature=_OSM_FEATURES,
         ),

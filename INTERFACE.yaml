@@ -1,19 +1,42 @@
-# Module Input-Output structure for automated docs generation
+convention_version: v1.0.0
 pathvars:
   snakemake_defaults:
     logs:
-      default: "<logs>"
-      description: location of snakemake log files.
+      default: <logs>
+      description: Location of module logs.
     resources:
-      default: "<resources>"
-      description: >-
-        Raw OSM files are written to retrieve/{country}_{feature}.json.
-        Clean features are written below clean; generic network outputs
-        below build (buses/lines/transformers as CSV under build/csv
-        and GeoJSON, including substation polygons, under build/geojson).
-        An interactive PyDeck map of the network, and the default target
-        of this workflow, is written to map.html.
+      default: <resources>
+      description: Location of downloaded PBFs, retrieved OSM features, and cleaning intermediates.
     results:
-      default: "<results>"
-      description: location of module result files.
+      default: <results>
+      description: Location of module results.
   user_resources: {}
+  results:
+    buses:
+      default: <results>/network/csv/buses.csv
+      description: Network buses.
+    lines:
+      default: <results>/network/csv/lines.csv
+      description: Network lines.
+    transformers:
+      default: <results>/network/csv/transformers.csv
+      description: Network transformers.
+    buses_geojson:
+      default: <results>/network/geojson/buses.geojson
+      description: Network buses geojson.
+    lines_geojson:
+      default: <results>/network/geojson/lines.geojson
+      description: Network lines geojson.
+    transformers_geojson:
+      default: <results>/network/geojson/transformers.geojson
+      description: Network transformers geojson.
+    stations_polygon:
+      default: <results>/network/geojson/stations_polygon.geojson
+      description: Network stations polygon.
+    buses_polygon:
+      default: <results>/network/geojson/buses_polygon.geojson
+      description: Network buses polygon.
+    map:
+      default: <results>/map.html
+      description: Network map.
+wildcards: {}

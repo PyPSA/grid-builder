@@ -1,0 +1,188 @@
+additionalProperties: false
+description: Top-level grid-builder config.
+properties:
+  countries:
+    default:
+    - BE
+    description: List of countries to retrieve OSM data for
+    items:
+      type: string
+    minItems: 1
+    type: array
+  retrieve:
+    additionalProperties: false
+    description: Settings for retrieve_osm_pbf.py/retrieve_osm_overpass.py.
+    properties:
+      source:
+        default: geofabrik
+        description: Retrieval backend for OSM data
+        enum:
+        - geofabrik
+        - overpass
+        type: string
+      force_redownload:
+        default: false
+        description: Force refresh of cached data
+        type: boolean
+      target_date:
+        anyOf:
+        - format: date-time
+          type: string
+        - type: 'null'
+        default:
+        description: 'Optional historical date for data retrieval in ISO 8601 datetime format. Only honoured for retrieve.source: geofabrik.'
+      overpass_api:
+        additionalProperties: false
+        description: Settings for retrieve_osm_overpass.py's own Overpass API client.
+        properties:
+          url:
+            default: https://overpass-api.de/api/interpreter
+            description: Overpass API endpoint to query
+            type: string
+          max_tries:
+            default: 5
+            description: Maximum number of attempts per query before giving up
+            minimum: 1
+            type: integer
+          timeout:
+            default: 600
+            description: Per-request timeout in seconds
+            exclusiveMinimum: 0
+            type: integer
+          user_agent:
+            additionalProperties: false
+            description: Identifies this tool to the Overpass API, per its fair-use policy.
+            properties:
+              project_name:
+                default: grid-builder
+                description: Project name sent in the User-Agent header
+                type: string
+              email:
+                default: ''
+                description: Contact email sent in the User-Agent header
+                type: string
+              website:
+                default: https://github.com/pypsa/grid-builder
+                description: Project URL sent in the User-Agent header
+                type: string
+  network:
+    additionalProperties: false
+    description: Global assumptions for cleaning and connecting OSM grid features.
+    properties:
+      include_relations:
+        default: true
+        description: Whether the network should consider OSM route=power/power=circuit relations, grouping their member ways into a single line matching the relation's real-world circuit; retrieval respects this too, so relations aren't fetched at all when it's off
+        type: boolean
+      minimum_voltage_kv:
+        default: 220.0
+        description: Minimum nominal AC voltage retained from OSM, in kV
+        exclusiveMinimum: 0
+        type: number
+      frequency_hz:
+        additionalProperties: false
+        description: AC/DC frequency in Hz, used to classify and normalise OSM ``frequency`` tags.
+        properties:
+          AC:
+            default: 50.0
+            description: AC frequency in Hz (50 for most of the world; 60 for the Americas and parts of Asia)
+            exclusiveMinimum: 0
+            type: number
+          DC:
+            default: 0.0
+            description: Frequency tag value OSM uses to mark a DC line/converter
+            minimum: 0
+            type: number
+      station_merge_radius_m:
+        default: 500.0
+        description: Buffer radius used to merge nearby substations and line endpoints, in metres
+        exclusiveMinimum: 0
+        type: number
+      remove_under_construction:
+        default: true
+        description: Whether assets tagged as under construction are dropped
+        type: boolean
+      remove_after:
+        anyOf:
+        - format: date
+          type: string
+        - type: 'null'
+        default: '2026-12-31'
+        description: Exclude assets with a later planned start date; null disables this filter
+  regions:
+    additionalProperties:
+      additionalProperties: false
+      description: Optional country-specific overrides loaded from config/regions.
+      properties:
+        minimum_voltage_kv:
+          anyOf:
+          - exclusiveMinimum: 0
+            type: number
+          - type: 'null'
+          default:
+        frequency_hz:
+          anyOf:
+          - additionalProperties: false
+            description: Optional per-country AC/DC override; unset fields fall back to network.frequency_hz.
+            properties:
+              AC:
+                anyOf:
+                - exclusiveMinimum: 0
+                  type: number
+                - type: 'null'
+                default:
+              DC:
+                anyOf:
+                - minimum: 0
+                  type: number
+                - type: 'null'
+                default:
+          - type: 'null'
+          default:
+    description: Country-specific network overrides loaded from config/regions
+    type: object
+  interactive_map:
+    additionalProperties: false
+    description: Geometry simplification and coordinate rounding for build_interactive_map.py.
+    properties:
+      coordinate_decimals:
+        default: 5
+        description: Decimal places kept for coordinates embedded in the interactive map; 5 is about 1.1m of precision at the equator, comfortably below every simplification tolerance below
+        minimum: 0
+        type: integer
+      simplify_geometries:
+        additionalProperties: false
+        description: Douglas-Peucker simplification tolerances for the interactive map.
+        properties:
+          enable:
+            default: true
+            description: Whether to simplify station/bus-polygon/line geometries before embedding them in the interactive map
+            type: boolean
+          stations_m:
+            default: 100.0
+            description: Simplification tolerance for station polygon outlines, in metres
+            minimum: 0
+            type: number
+          buses_polygon_m:
+            default: 5.0
+            description: Simplification tolerance for individual bus/substation footprint polygons, in metres
+            minimum: 0
+            type: number
+          lines_m:
+            default: 30.0
+            description: Simplification tolerance for line geometries, in metres
+            minimum: 0
+            type: number
+  crs:
+    additionalProperties: false
+    description: Coordinate reference systems used throughout clean/build_network.
+    properties:
+      geo:
+        default: EPSG:4326
+        description: Geographic CRS used to store and exchange coordinates
+        type: string
+      distance:
+        default: EPSG:3035
+        description: Equal-area/equal-distance CRS used for buffering and length calculations; must suit the geographic extent in use (the default, ETRS89-LAEA, covers Europe)
+        type: string
+title: ConfigSchema
+type: object

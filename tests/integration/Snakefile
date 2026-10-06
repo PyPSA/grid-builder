@@ -6,6 +6,7 @@ module grid_builder:
     pathvars:
         resources="resources/grid-builder",
         logs="logs/grid-builder",
+        results="results/grid-builder",
     snakefile:
         "../../workflow/Snakefile"
     config:
