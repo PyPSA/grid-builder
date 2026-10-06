@@ -94,7 +94,7 @@ working directory. Logs use `<logs>/`, with a separate retrieval log per country
 
 ### Importing into another workflow
 
-The host environment needs Python 3.12, Snakemake >=9.19, `pydantic >=2`,
+The host environment needs Python 3.12, Snakemake >=9.27, `pydantic >=2`,
 `ruamel.yaml >=0.18`, `pyyaml >=6,<7`, and `earth-osm >=3.0.2` to load and validate
 the module. Rule dependencies are installed separately by `--use-conda`.
 

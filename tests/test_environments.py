@@ -49,4 +49,5 @@ def test_export_to_custom_directory(tmp_path):
         timeout=60,
     )
     for source in (root / "workflow/envs").glob("module.*"):
-        assert (outdir / source.name).read_bytes() == source.read_bytes()
+        # Git checkouts may use CRLF on Windows; compare normalized text.
+        assert (outdir / source.name).read_text() == source.read_text()

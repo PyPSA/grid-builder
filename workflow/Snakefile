@@ -5,7 +5,7 @@ import sys
 import yaml
 from snakemake.utils import min_version
 
-min_version("9.19")
+min_version("9.27")
 
 # Resolve auxiliary files through Snakemake so remote modules are cached too.
 # A path-specific name keeps separate grid-builder versions isolated in one host.
