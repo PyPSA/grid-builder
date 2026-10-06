@@ -46,6 +46,9 @@ def test_generated_config_matches_repository(tmp_path):
     defaults = generate_config_defaults(str(tmp_path / "config.yaml"))
     schema = generate_config_schema(str(tmp_path / "config.schema.json"))
     assert defaults == yaml.safe_load((config_dir / "config.yaml").read_text())
+    assert schema == yaml.safe_load(
+        (config_dir.parent / "workflow/internal/config.schema.yaml").read_text()
+    )
     assert schema == json.loads((config_dir / "config.schema.json").read_text())
     validated = validate_config(defaults)
     assert validated.retrieve.overpass_api.max_tries == 5

@@ -20,10 +20,7 @@ _OSM_FEATURES = [
     "substations_relation",
     "routes_relation",
 ]
-_OSM_OUTPUTS = {
-    feature: f"<resources>/retrieve/{{country}}_{feature}.json"
-    for feature in _OSM_FEATURES
-}
+_OSM_OUTPUTS = {feature: f"<osm_{feature}>" for feature in _OSM_FEATURES}
 
 
 if config["retrieve"]["source"] == "geofabrik":
@@ -67,7 +64,6 @@ elif config["retrieve"]["source"] == "overpass":
 rule retrieve_osm_all:
     input:
         expand(
-            "<resources>/retrieve/{country}_{feature}.json",
+            [workflow.pathvars.apply(path) for path in _OSM_OUTPUTS.values()],
             country=config["countries"],
-            feature=_OSM_FEATURES,
         ),

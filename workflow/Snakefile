@@ -32,10 +32,24 @@ _region_paths = {
 }
 
 
-# Define pathvars to expose OSM retrieval outputs for downstream use.
+# Retrieval paths and public outputs can be rewired by a consuming workflow.
 pathvars:
-    # OSM retrieval outputs by country and feature
-    osm_retrieve="<resources>/retrieve",
+    osm_retrieve="<resources>/automatic/retrieve",
+    osm_lines_way="<osm_retrieve>/{country}_lines_way.json",
+    osm_cables_way="<osm_retrieve>/{country}_cables_way.json",
+    osm_substations_way="<osm_retrieve>/{country}_substations_way.json",
+    osm_substations_node="<osm_retrieve>/{country}_substations_node.json",
+    osm_substations_relation="<osm_retrieve>/{country}_substations_relation.json",
+    osm_routes_relation="<osm_retrieve>/{country}_routes_relation.json",
+    buses="<results>/network/csv/buses.csv",
+    lines="<results>/network/csv/lines.csv",
+    transformers="<results>/network/csv/transformers.csv",
+    buses_geojson="<results>/network/geojson/buses.geojson",
+    lines_geojson="<results>/network/geojson/lines.geojson",
+    transformers_geojson="<results>/network/geojson/transformers.geojson",
+    stations_polygon="<results>/network/geojson/stations_polygon.geojson",
+    buses_polygon="<results>/network/geojson/buses_polygon.geojson",
+    map="<results>/map.html",
 
 
 # Default configuration file generated from pydantic schema.

@@ -11,7 +11,7 @@ rule build_interactive_map:
         stations_polygon=rules.build_network.output.stations_polygon,
         buses_polygon=rules.build_network.output.buses_polygon,
     output:
-        map="<resources>/map.html",
+        map="<map>",
     log:
         "<logs>/build_interactive_map.log",
     conda:

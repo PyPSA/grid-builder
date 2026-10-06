@@ -37,7 +37,7 @@ def test_interface_file(module_path):
         "LICENSE",
         "README.md",
         "config/config.yaml",
-        "config/config.schema.json",
+        "workflow/internal/config.schema.yaml",
         "config/examples/config.BE-NL.yaml",
         "tests/integration/Snakefile",
     ],
@@ -94,7 +94,7 @@ def test_snakemake_integration_testing(module_path):
                 shutil.copytree(workdir / "logs", log_dir, dirs_exist_ok=True)
 
         assert result.returncode == 0, run_log.read_text(encoding="utf-8")
-        output_dir = workdir / "resources/grid-builder/retrieve"
+        output_dir = workdir / "resources/grid-builder/automatic/retrieve"
         for feature in ("substations_way", "lines_way"):
             payload = json.loads(
                 (output_dir / f"benin_{feature}.json").read_text(encoding="utf-8")
@@ -103,7 +103,7 @@ def test_snakemake_integration_testing(module_path):
             assert elements, f"No {feature} records retrieved"
             assert all(item["geometry"] for item in elements)
 
-        build_dir = workdir / "resources/grid-builder/build"
+        build_dir = workdir / "results/grid-builder/network"
         for component in ("buses", "lines", "transformers"):
             with (build_dir / "csv" / f"{component}.csv").open(
                 encoding="utf-8"

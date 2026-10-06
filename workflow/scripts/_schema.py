@@ -364,7 +364,9 @@ def generate_config_defaults(path: str = "config/config.yaml") -> dict:
     yaml_writer.representer.add_representer(str, str_representer)
 
     data = CommentedMap()
-    data.yaml_set_start_comment("yaml-language-server: $schema=./config.schema.json")
+    data.yaml_set_start_comment(
+        "yaml-language-server: $schema=../workflow/internal/config.schema.yaml"
+    )
 
     for key, value in defaults.items():
         data[key] = value
@@ -379,7 +381,7 @@ def generate_config_defaults(path: str = "config/config.yaml") -> dict:
     return defaults
 
 
-def generate_config_schema(path: str = "config/config.schema.json") -> dict:
+def generate_config_schema(path: str = "workflow/internal/config.schema.yaml") -> dict:
     """Generate JSON schema file and return the schema dict."""
 
     def resolve_refs(obj, defs):
@@ -447,8 +449,13 @@ def generate_config_schema(path: str = "config/config.schema.json") -> dict:
     schema = remove_object_type(schema)
 
     with open(path, "w") as f:
-        json.dump(schema, f, indent=2)
-        f.write("\n")
+        if Path(path).suffix == ".json":
+            json.dump(schema, f, indent=2)
+            f.write("\n")
+        else:
+            yaml_writer = YAML()
+            yaml_writer.width = 4096
+            yaml_writer.dump(schema, f)
 
     return schema
 
@@ -486,4 +493,5 @@ __all__ = [
 if __name__ == "__main__":
     generate_config_defaults()
     generate_config_schema()
+    generate_config_schema("config/config.schema.json")
     generate_region_index()

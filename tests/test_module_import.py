@@ -90,12 +90,15 @@ module grid:
         resources="custom/resources",
         results="custom/results",
         logs="custom/logs",
+        osm_lines_way="rewired/{{country}}/lines.json",
+        map="rewired/map.html",
+        buses="rewired/buses.csv",
 
 use rule * from grid as grid_*
 
 assert scripts._schema.parent_marker
 assert scripts._helpers.parent_marker == "parent helper"
-assert "custom/resources/retrieve/US_lines_way.json" in rules.grid_retrieve_osm_all.input
+assert "rewired/US/lines.json" in rules.grid_retrieve_osm_all.input
 if {backend!r} == "geofabrik":
     assert rules.grid_retrieve_osm_pbf.params.data_dir == "custom/resources/automatic/earth-osm"
 assert grid.config["regions"]["US"]["frequency_hz"]["AC"] == 60
@@ -109,7 +112,7 @@ rule all:
     input: rules.grid_build_interactive_map.output, rules.parent_probe.output
 """
     )
-    raw_dir = workdir / "custom/resources/retrieve"
+    raw_dir = workdir / "custom/resources/automatic/retrieve"
     raw_dir.mkdir(parents=True)
     for feature in (
         "lines_way",
@@ -161,7 +164,11 @@ rule all:
                 }
                 for i, lon in enumerate((-100.0, -99.9))
             ]
-        raw_path = raw_dir / f"US_{feature}.json"
+        raw_path = (
+            workdir / "rewired/US/lines.json"
+            if feature == "lines_way"
+            else raw_dir / f"US_{feature}.json"
+        )
         payloads[feature] = {"elements": elements}
         if backend == "geofabrik":
             raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,12 +185,12 @@ rule all:
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert (workdir / "parent.txt").read_text() == "parent helper"
-    assert (workdir / "custom/resources/map.html").stat().st_size > 0
+    assert (workdir / "rewired/map.html").stat().st_size > 0
     lines = json.loads(
-        (workdir / "custom/resources/build/geojson/lines.geojson").read_text()
+        (workdir / "custom/results/network/geojson/lines.geojson").read_text()
     )
     assert len(lines["features"]) == 1
-    assert (workdir / "custom/resources/build/csv/buses.csv").stat().st_size > 0
+    assert (workdir / "rewired/buses.csv").stat().st_size > 0
     if backend == "overpass":
         assert (
             "Querying Overpass"

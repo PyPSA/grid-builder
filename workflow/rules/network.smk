@@ -6,43 +6,44 @@
 rule clean:
     input:
         lines_way=expand(
-            "<resources>/retrieve/{country}_lines_way.json",
+            workflow.pathvars.apply("<osm_lines_way>"),
             country=config["countries"],
         ),
         cables_way=expand(
-            "<resources>/retrieve/{country}_cables_way.json",
+            workflow.pathvars.apply("<osm_cables_way>"),
             country=config["countries"],
         ),
         substations_way=expand(
-            "<resources>/retrieve/{country}_substations_way.json",
+            workflow.pathvars.apply("<osm_substations_way>"),
             country=config["countries"],
         ),
         substations_node=expand(
-            "<resources>/retrieve/{country}_substations_node.json",
+            workflow.pathvars.apply("<osm_substations_node>"),
             country=config["countries"],
         ),
         substations_relation=expand(
-            "<resources>/retrieve/{country}_substations_relation.json",
+            workflow.pathvars.apply("<osm_substations_relation>"),
             country=config["countries"],
         ),
         routes_relation=(
             expand(
-                "<resources>/retrieve/{country}_routes_relation.json",
+                workflow.pathvars.apply("<osm_routes_relation>"),
                 country=config["countries"],
             )
             if config["network"]["include_relations"]
             else []
         ),
     output:
-        substations="<resources>/clean/substations.geojson",
-        substations_polygon="<resources>/clean/substations_polygon.geojson",
-        lines="<resources>/clean/lines.geojson",
+        substations="<resources>/automatic/clean/substations.geojson",
+        substations_polygon="<resources>/automatic/clean/substations_polygon.geojson",
+        lines="<resources>/automatic/clean/lines.geojson",
     log:
         "<logs>/clean.log",
     conda:
         "../envs/module.yaml"
     threads: 1
     params:
+        countries=[_schema.get_region_tuple(c).short for c in config["countries"]],
         network=config["network"],
         regions=config["regions"],
         crs=config["crs"],
@@ -58,14 +59,14 @@ rule build_network:
         substations_polygon=rules.clean.output.substations_polygon,
         lines=rules.clean.output.lines,
     output:
-        buses="<resources>/build/csv/buses.csv",
-        lines="<resources>/build/csv/lines.csv",
-        transformers="<resources>/build/csv/transformers.csv",
-        buses_geojson="<resources>/build/geojson/buses.geojson",
-        lines_geojson="<resources>/build/geojson/lines.geojson",
-        transformers_geojson="<resources>/build/geojson/transformers.geojson",
-        stations_polygon="<resources>/build/geojson/stations_polygon.geojson",
-        buses_polygon="<resources>/build/geojson/buses_polygon.geojson",
+        buses="<buses>",
+        lines="<lines>",
+        transformers="<transformers>",
+        buses_geojson="<buses_geojson>",
+        lines_geojson="<lines_geojson>",
+        transformers_geojson="<transformers_geojson>",
+        stations_polygon="<stations_polygon>",
+        buses_polygon="<buses_polygon>",
     log:
         "<logs>/build_network.log",
     conda:
