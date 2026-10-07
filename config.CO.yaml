@@ -1,5 +1,0 @@
-# Colombia run used for the main vs integrate-composite-features comparison.
-# Everything else is left at the shipped defaults, so the two branches differ
-# only by code. Run with:
-#   snakemake --cores 2 --configfile config.CO.yaml
-countries: [CO]
