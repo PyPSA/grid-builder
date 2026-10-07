@@ -260,9 +260,11 @@ def _frequency_for_split(row: pd.Series) -> str:
     OSM lists one frequency per circuit in the same order as voltage, e.g.
     voltage=380000;110000 with frequency=50;16.7 for a mains circuit sharing
     towers with a railway traction circuit. Only voltage is split into rows,
-    so without this each split would carry the whole list. A shorter list is
-    padded with its last value, PyPSA-Earth's rule; a longer one is
-    truncated to the voltages present.
+    so without this each split would carry the whole list.
+
+    # TODO Revise this assumption to incorporate PyPSA-Earth logic 
+    in a more complete way.
+
     """
     values = row["frequency"].split(";")
     if len(values) == 1:
