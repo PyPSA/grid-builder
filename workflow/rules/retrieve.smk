@@ -4,6 +4,8 @@
 
 from pathlib import Path
 
+from scripts._schema import OSM_FEATURES
+
 # Both retrieve_osm_pbf and retrieve_osm_overpass produce this same fixed
 # set of six files per country (routes_relation included even when
 # network.include_relations is off, just empty) — see either script's
@@ -13,14 +15,10 @@ from pathlib import Path
 # retrieve.source picks exactly one implementation for the same output
 # paths — defining both unconditionally would make Snakemake's DAG
 # ambiguous about which one produces a given {country}_{feature}.json.
-_OSM_FEATURES = [
-    "lines_way",
-    "cables_way",
-    "substations_way",
-    "substations_node",
-    "substations_relation",
-    "routes_relation",
-]
+# The feature list itself lives in scripts/_schema.py, so the custom-data
+# validator there checks names against the same list these paths are built
+# from; the Snakefile imports it before including this file.
+_OSM_FEATURES = list(OSM_FEATURES)
 _OSM_OUTPUTS = {
     feature: f"<resources>/retrieve/{{country}}_{feature}.json"
     for feature in _OSM_FEATURES

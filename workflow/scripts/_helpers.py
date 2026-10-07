@@ -26,9 +26,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-GEO_CRS = "EPSG:4326"
-BUS_TOL = 500  # metres; default station merge tolerance
-
 
 def configure_logging(log_path: str) -> None:
     """Send rule and dependency logging to the Snakemake log file."""
@@ -57,6 +54,29 @@ def load_internal_yaml(filename: str) -> Any:
     path = Path(__file__).resolve().parent.parent / "internal" / filename
     with open(path) as handle:
         return yaml.safe_load(handle)
+
+
+def load_config_defaults() -> Any:
+    """Load config/config.yaml, the defaults generated from the schema in _schema.py."""
+    path = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
+    with open(path) as handle:
+        return yaml.safe_load(handle)
+
+
+def custom_files(files: list[str], feature: str) -> list[str]:
+    """Custom raw files for one feature, cleaned alongside the retrieved ones.
+
+    Selected by filename, the same ``{country}_{feature}.json`` convention
+    retrieval writes and ``clean`` reads the country back out of, so a
+    custom file needs no special handling downstream.
+    """
+    return [path for path in files if Path(path).stem.endswith(f"_{feature}")]
+
+
+# Defaults for functions called outside Snakemake, whose rules pass their own
+# resolved config values instead.
+GEO_CRS: str = load_config_defaults()["crs"]["geo"]
+BUS_TOL: float = load_config_defaults()["network"]["station_merge_radius_m"]  # metres
 
 
 def mock_snakemake(

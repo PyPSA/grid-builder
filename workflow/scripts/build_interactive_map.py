@@ -91,8 +91,8 @@ def line_colors(voltages: pd.Series) -> list[list[int]]:
 def path_layer(
     frame: gpd.GeoDataFrame,
     name: str,
-    color: list[int] | str,
     *,
+    color: list[int] | str,
     geo_crs: str,
     distance_crs: str,
     coord_decimals: int,
@@ -107,17 +107,20 @@ def path_layer(
         frame["geometry"] = (
             frame.geometry.to_crs(distance_crs).simplify(simplify_m).to_crs(geo_crs)
         )
+    # A PathLayer datum is one flat list of positions, so a MultiLineString has
+    # to become one row per part. Handing deck.gl a nested list instead throws
+    # inside its tesselator and takes the whole canvas down with it, not just
+    # the offending row, so a single multi-part line blanks the entire map.
+    if (frame.geom_type == "MultiLineString").any():
+        frame = frame.explode(index_parts=False).reset_index(drop=True)
     data = tooltip(frame)
     data["path"] = data.geometry.map(
-        lambda line: (
-            [
-                [_coord(point, coord_decimals) for point in item.coords]
-                for item in line.geoms
-            ]
-            if line.geom_type == "MultiLineString"
-            else [_coord(point, coord_decimals) for point in line.coords]
-        )
+        lambda line: [_coord(point, coord_decimals) for point in line.coords]
     )
+    # Zero-length parts carry no picture and give deck.gl degenerate normals.
+    data = data[data["path"].map(lambda path: len({tuple(p) for p in path}) > 1)]
+    if data.empty:
+        return None
     return pdk.Layer(
         "PathLayer",
         data=data.drop(columns="geometry"),
@@ -135,7 +138,6 @@ def polygon_layer(
     frame: gpd.GeoDataFrame,
     name: str,
     color: list[int],
-    *,
     geo_crs: str,
     distance_crs: str,
     coord_decimals: int,
@@ -150,16 +152,15 @@ def polygon_layer(
         frame["geometry"] = (
             frame.geometry.to_crs(distance_crs).simplify(simplify_m).to_crs(geo_crs)
         )
+    # deck.gl reads a nested list as one polygon with holes, so the parts of a
+    # MultiPolygon would be punched out of the first part instead of drawn.
+    if (frame.geom_type == "MultiPolygon").any():
+        frame = frame.explode(index_parts=False).reset_index(drop=True)
     data = tooltip(frame)
     data["polygon"] = data.geometry.map(
-        lambda polygon: (
-            [
-                [_coord(point, coord_decimals) for point in item.exterior.coords]
-                for item in polygon.geoms
-            ]
-            if polygon.geom_type == "MultiPolygon"
-            else [_coord(point, coord_decimals) for point in polygon.exterior.coords]
-        )
+        lambda polygon: [
+            _coord(point, coord_decimals) for point in polygon.exterior.coords
+        ]
     )
     extrusion_kwargs: dict[str, Any] = {}
     if extruded:
@@ -188,7 +189,7 @@ def build_map(
     transformers: gpd.GeoDataFrame,
     stations: gpd.GeoDataFrame,
     bus_polygons: gpd.GeoDataFrame,
-    *,
+    converters: gpd.GeoDataFrame | None,
     geo_crs: str,
     distance_crs: str,
     stations_simplify_m: float | None,
@@ -196,7 +197,7 @@ def build_map(
     lines_simplify_m: float | None,
     coord_decimals: int,
 ) -> pdk.Deck:
-    """Create the generic AC map without requiring DC links or converters."""
+    """Create an interactive network map."""
     lines = lines.copy()
     if not lines.empty:
         lines["color"] = line_colors(lines["voltage_kv"])
@@ -236,6 +237,14 @@ def build_map(
                 transformers,
                 "Transformers",
                 [255, 255, 0, 180],
+                geo_crs=geo_crs,
+                distance_crs=distance_crs,
+                coord_decimals=coord_decimals,
+            ),
+            path_layer(
+                converters if converters is not None else gpd.GeoDataFrame(),
+                "Converters",
+                [0, 255, 255, 220],
                 geo_crs=geo_crs,
                 distance_crs=distance_crs,
                 coord_decimals=coord_decimals,
@@ -1086,8 +1095,16 @@ if __name__ == "__main__":
     configure_logging(snakemake.log[0])
     geo_crs = snakemake.params.crs["geo"]
     simplify = snakemake.params.interactive_map["simplify_geometries"]
+    buses, lines, transformers, stations, bus_polygons, converters = (
+        gpd.read_file(path).to_crs(geo_crs) for path in snakemake.input
+    )
     deck = build_map(
-        *(gpd.read_file(path).to_crs(geo_crs) for path in snakemake.input),
+        buses,
+        lines,
+        transformers,
+        stations,
+        bus_polygons,
+        converters,
         geo_crs=geo_crs,
         distance_crs=snakemake.params.crs["distance"],
         stations_simplify_m=simplify["stations_m"] if simplify["enable"] else None,

@@ -12,11 +12,28 @@ from pathlib import Path
 from typing import Any, Literal
 
 from earth_osm.regions import get_all_valid_codes, get_region_tuple
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    ValidationError,
+    field_validator,
+)
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
 _VALID_REGIONS: frozenset[str] = frozenset(get_all_valid_codes())
+
+# The fixed set of raw OSM features to enable compatibility with custom data.
+OSM_FEATURES: tuple[str, ...] = (
+    "lines_way",
+    "cables_way",
+    "substations_way",
+    "substations_node",
+    "substations_relation",
+    "routes_relation",
+)
 
 
 def _validate_countries(countries: list[str]) -> None:
@@ -92,6 +109,14 @@ class OverpassApiConfig(ConfigModel):
         5, description="Maximum number of attempts per query before giving up", ge=1
     )
     timeout: int = Field(600, description="Per-request timeout in seconds", gt=0)
+    backoff_factor: float = Field(
+        2.0,
+        description=(
+            "Exponential backoff between retries, in seconds: the n-th retry "
+            "waits backoff_factor * 2**(n-1)"
+        ),
+        ge=0,
+    )
     user_agent: OverpassUserAgentConfig = Field(default_factory=OverpassUserAgentConfig)
 
 
@@ -151,13 +176,79 @@ class NetworkConfig(ConfigModel):
     minimum_voltage_kv: float = Field(
         220.0, description="Minimum nominal AC voltage retained from OSM, in kV", gt=0
     )
+    minimum_voltage_dc_kv: float = Field(
+        150.0,
+        description=(
+            "Minimum nominal DC voltage retained from OSM, in kV. Separate from "
+            "the AC floor because HVDC links commonly run below 220 kV, e.g. "
+            "the 150 kV Estlink 1 and Gotland links; PyPSA-Eur uses 150 kV"
+        ),
+        gt=0,
+    )
     frequency_hz: FrequencyConfig = Field(
         default_factory=FrequencyConfig,
         description="AC/DC frequency in Hz; override per country in config/regions for e.g. 60 Hz grids",
     )
+    accepted_ac_frequencies_hz: list[PositiveFloat] = Field(
+        [50.0, 60.0],
+        description=(
+            "Frequency tag values treated as public-grid AC. A tagged value "
+            "within frequency_tolerance_hz of one of these is kept and "
+            "normalised to the region's AC frequency, since 50 Hz in a 60 Hz "
+            "country is far likelier a tagging slip than a separate grid. Any "
+            "other non-DC value is dropped: it marks a separate system such as "
+            "16.7 Hz railway traction, which must not be read as mains AC"
+        ),
+        min_length=1,
+    )
+    frequency_tolerance_hz: float = Field(
+        0.1,
+        description=(
+            "Tolerance for matching a frequency tag, so that 50.0 matches 50 "
+            "and 0.0 matches the DC marker"
+        ),
+        ge=0,
+    )
+    converter_search_radius_m: float = Field(
+        50000.0,
+        description=(
+            "How far, in metres, a station tagged substation=converter looks "
+            "for an AC station when it has DC buses but no AC bus of its own. "
+            "Converter halls often sit apart from the AC substation they feed, "
+            "further than station_merge_radius_m merges; PyPSA-Eur uses 50 km"
+        ),
+        gt=0,
+    )
+    dc_lines: Literal["keep", "drop", "force_ac"] = Field(
+        "keep",
+        description=(
+            "Treatment of DC lines and cables. keep carries them as dc=true, "
+            "gives them their own buses and adds converters where a station "
+            "holds both AC and DC buses. drop removes them. force_ac keeps "
+            "them but relabels them AC, for downstream models that cannot "
+            "handle DC"
+        ),
+    )
     station_merge_radius_m: float = Field(
         500.0,
         description="Buffer radius used to merge nearby substations and line endpoints, in metres",
+        gt=0,
+    )
+    station_bus_offset_m: float = Field(
+        15.0,
+        description=(
+            "Distance, in metres, by which the buses of a multi-voltage station "
+            "are spread around its centre so each level stays distinguishable "
+            "on a map; 0 places them all at the centre"
+        ),
+        ge=0,
+    )
+    overpassing_lines_tolerance_m: float = Field(
+        1.0,
+        description=(
+            "A line passing within this distance, in metres, of a bus it does "
+            "not end at is split there and connected to it"
+        ),
         gt=0,
     )
     remove_under_construction: bool = Field(
@@ -167,6 +258,43 @@ class NetworkConfig(ConfigModel):
         date(2026, 12, 31),
         description="Exclude assets with a later planned start date; null disables this filter",
     )
+
+
+class CustomDataConfig(ConfigModel):
+    """Non-OSM elements to clean alongside the retrieved ones.
+
+    OSM's high-voltage coverage is uneven, and today the only way to correct
+    a missing or mistagged asset is to edit OSM upstream and wait for the
+    next extract, which also makes a study hard to reproduce. Files listed
+    here are read by ``clean`` exactly like retrieved ones, because both
+    retrieval backends already write the same raw shape.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Paths to extra raw files in the same shape retrieval writes, "
+            "named ``{country}_{feature}.json`` so ``clean`` picks up the "
+            "country and feature from the filename. Their elements are added "
+            "to the retrieved ones"
+        ),
+    )
+
+    @field_validator("files")
+    @classmethod
+    def validate_file_names(cls, v: list[str]) -> list[str]:
+        """Reject names ``clean`` could not map back to a country and feature."""
+        for path in v:
+            stem = Path(path).stem
+            if not any(stem.endswith(f"_{feature}") for feature in OSM_FEATURES):
+                raise ValueError(
+                    f"Custom data file {path!r} must be named "
+                    f"'{{country}}_{{feature}}.json', where feature is one of "
+                    f"{', '.join(OSM_FEATURES)}."
+                )
+        return v
 
 
 class SimplifyGeometriesConfig(ConfigModel):
@@ -242,6 +370,7 @@ class CrsConfig(ConfigModel):
         "EPSG:4326", description="Geographic CRS used to store and exchange coordinates"
     )
     distance: str = Field(
+        # TODO Mind European-centric hardcoding
         "EPSG:3035",
         description=(
             "Equal-area/equal-distance CRS used for buffering and length "
@@ -280,6 +409,10 @@ class ConfigSchema(ConfigModel):
     regions: dict[str, RegionalNetworkConfig] = Field(
         default_factory=dict,
         description="Country-specific network overrides loaded from config/regions",
+    )
+    custom_data: CustomDataConfig = Field(
+        default_factory=CustomDataConfig,
+        description="Non-OSM raw files cleaned alongside the retrieved ones",
     )
     interactive_map: InteractiveMapConfig = Field(
         default_factory=InteractiveMapConfig,

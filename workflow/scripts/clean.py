@@ -21,6 +21,7 @@ floored to whole kV at the very end.
 import itertools
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -40,6 +41,45 @@ logger = logging.getLogger(__name__)
 _TAG_CORRECTIONS: dict[str, list[dict[str, Any]]] = load_internal_yaml(
     "tag_corrections.yaml"
 )
+
+# Country values whose AC frequency overrides conflict, tracked so the
+# warning in _region_ac_hz is logged once per border rather than once per row.
+_AC_FREQUENCY_CONFLICTS: set[str] = set()
+
+# Output schemas, shared by the populated and the empty-input paths so a
+# country with no substations or no lines still yields the same columns.
+SUBSTATION_COLUMNS = [
+    "bus_id",
+    "voltage",
+    "dc",
+    "converter",
+    "country",
+    "under_construction",
+    "start_date",
+    "geometry",
+    "polygon",
+    "contains",
+]
+LINE_COLUMNS = [
+    "line_id",
+    "circuits",
+    "voltage",
+    "dc",
+    "p_nom_mw",
+    "country",
+    "underground",
+    "under_construction",
+    "start_date",
+    "geometry",
+    "contains",
+]
+
+
+def _empty_frame(columns: list[str], crs: str) -> gpd.GeoDataFrame:
+    """An empty GeoDataFrame with the given non-geometry ``columns``."""
+    return gpd.GeoDataFrame(
+        {column: [] for column in columns}, geometry=gpd.GeoSeries([], crs=crs), crs=crs
+    )
 
 
 def _create_linestring(row: pd.Series) -> LineString:
@@ -83,28 +123,52 @@ def _apply_corrections(column: pd.Series, steps: list[dict[str, Any]]) -> pd.Ser
     return column
 
 
+def _strip_to(column: pd.Series, tag: str, allowed: str) -> pd.Series:
+    """Drop every character outside ``allowed``, reporting what was unmapped first.
+
+    The strip is a catch-all: whatever the corrections above did not handle,
+    it reduces to bare digits. That is right for stray units and punctuation
+    but wrong for a value encoding arithmetic, where "2x3" becomes 23 rather
+    than 6. PyPSA-Earth's replacement tables grew precisely because it logs
+    the values it could not map, so log them here too instead of silently
+    turning a tag into a plausible but wrong number.
+    """
+    leftover = column[column.str.contains(f"[0-9][^{allowed}]+[0-9]", regex=True)]
+    if not leftover.empty:
+        counts = leftover.value_counts()
+        logger.warning(
+            "%d %s value(s) were not matched by any correction and will be reduced "
+            "to their digits, which may be wrong. Add them to "
+            "tag_corrections.yaml if so: %s",
+            int(counts.sum()),
+            tag,
+            ", ".join(f"{value!r} (x{n})" for value, n in counts.head(10).items()),
+        )
+    return column.str.replace(f"[^{allowed}]", "", regex=True)
+
+
 def _clean_voltage(column: pd.Series) -> pd.Series:
     """Normalise a raw ``voltage`` tag column to semicolon-separated volts."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["voltage"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "voltage", "0-9;")
 
 
 def _clean_circuits(column: pd.Series) -> pd.Series:
     """Normalise a raw ``circuits`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["circuits"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "circuits", "0-9;")
 
 
 def _clean_cables(column: pd.Series) -> pd.Series:
     """Normalise a raw ``cables`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["cables"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "cables", "0-9;")
 
 
 def _clean_wires(column: pd.Series) -> pd.Series:
     """Normalise a raw ``wires`` tag column to semicolon-separated integers."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["wires"])
-    return column.str.replace(r"[^0-9;]", "", regex=True)
+    return _strip_to(column, "wires", "0-9;")
 
 
 def _check_voltage(voltage: str, list_voltages: Any) -> bool:
@@ -116,7 +180,119 @@ def _check_voltage(voltage: str, list_voltages: Any) -> bool:
 def _clean_frequency(column: pd.Series) -> pd.Series:
     """Normalise a raw ``frequency`` tag column to semicolon-separated Hz values."""
     column = _apply_corrections(_to_str(column), _TAG_CORRECTIONS["frequency"])
-    return column.str.replace(r"[^0-9;.]", "", regex=True)
+    return _strip_to(column, "frequency", "0-9;.")
+
+
+def _frequency_kind(
+    value: str, dc_hz: float, accepted_ac_hz: list[float], tolerance_hz: float
+) -> str:
+    """Classify one cleaned frequency value as ``"ac"``, ``"dc"`` or ``"other"``.
+
+    Comparison is numeric with a tolerance, so "50.0" reads as AC and "0.0" as
+    DC where a string comparison would miss both. An untagged value counts as
+    AC, as in PyPSA-Earth, which fills a missing frequency with the mains
+    default. A value that does not parse is ``"other"``, again as in
+    PyPSA-Earth, which coerces it to NaN and drops it.
+    """
+    if value == "":
+        return "ac"
+    try:
+        hz = float(value)
+    except ValueError:
+        return "other"
+    if abs(hz - dc_hz) <= tolerance_hz:
+        return "dc"
+    if any(abs(hz - ac) <= tolerance_hz for ac in accepted_ac_hz):
+        return "ac"
+    return "other"
+
+
+def _normalise_frequency(
+    df: pd.DataFrame,
+    dc_hz: str,
+    accepted_ac_hz: list[float],
+    tolerance_hz: float,
+    label: str,
+) -> pd.DataFrame:
+    """Drop rows on a non-grid frequency and normalise the rest to AC or DC.
+
+    Each row must already hold a single frequency value and a per-row
+    ``_ac_hz``. AC rows are rewritten to their region's AC frequency and DC
+    rows to the DC marker, so later code can compare plain strings. Rows on
+    any other frequency belong to a separate system, typically 16.7 Hz or
+    25 Hz railway traction; rewriting them to mains AC, as a blanket
+    "invalid means AC" rule would, splices a railway into the public grid.
+    """
+    if df.empty:
+        return df
+    dc_value = float(dc_hz)
+    kind = df.apply(
+        lambda row: _frequency_kind(
+            row["frequency"],
+            dc_value,
+            [*accepted_ac_hz, float(row["_ac_hz"])],
+            tolerance_hz,
+        ),
+        axis=1,
+    )
+    other = kind == "other"
+    if other.any():
+        logger.info(
+            "Dropping %d %s on a non-grid frequency: %s",
+            int(other.sum()),
+            label,
+            ", ".join(sorted(df.loc[other, "frequency"].unique())[:10]),
+        )
+    df = df[~other].copy()
+    kind = kind[~other]
+    df.loc[kind == "ac", "frequency"] = df.loc[kind == "ac", "_ac_hz"]
+    df.loc[kind == "dc", "frequency"] = dc_hz
+    return df
+
+
+def _frequency_for_split(row: pd.Series) -> str:
+    """Pick the frequency belonging to this row's voltage split.
+
+    OSM lists one frequency per circuit in the same order as voltage, e.g.
+    voltage=380000;110000 with frequency=50;16.7 for a mains circuit sharing
+    towers with a railway traction circuit. Only voltage is split into rows,
+    so without this each split would carry the whole list.
+
+    # TODO Revise this assumption to incorporate PyPSA-Earth logic 
+    in a more complete way.
+
+    """
+    values = row["frequency"].split(";")
+    if len(values) == 1:
+        return values[0]
+    position = int(row["id"].rsplit("-", 1)[1]) - 1 if row["split_elements"] > 1 else 0
+    return values[min(position, len(values) - 1)]
+
+
+def _apply_dc_lines_mode(
+    df: pd.DataFrame, dc_lines: str, dc_hz: str, label: str
+) -> pd.DataFrame:
+    """Set the ``dc`` flag from the normalised frequency and apply ``network.dc_lines``."""
+    df = df.copy()
+    is_dc = df["frequency"] == dc_hz
+    if dc_lines == "drop":
+        logger.info(
+            "Dropped %d DC %s (network.dc_lines: drop).", int(is_dc.sum()), label
+        )
+        df = df[~is_dc].copy()
+        df["dc"] = False
+    elif dc_lines == "force_ac":
+        logger.info(
+            "Relabelled %d DC %s as AC (network.dc_lines: force_ac).",
+            int(is_dc.sum()),
+            label,
+        )
+        df.loc[is_dc, "frequency"] = df.loc[is_dc, "_ac_hz"]
+        df["dc"] = False
+    else:
+        logger.info("Keeping %d DC %s.", int(is_dc.sum()), label)
+        df["dc"] = is_dc
+    return df
 
 
 def _clean_date(column: pd.Series) -> pd.Series:
@@ -126,6 +302,26 @@ def _clean_date(column: pd.Series) -> pd.Series:
     column = column.str.replace(r"[^0-9-]", "", regex=True)
     column = column.mask(column == "")
     return pd.to_datetime(column, errors="coerce", format="mixed")
+
+
+def _clean_rating(column: pd.Series) -> pd.Series:
+    """Parse a ``rating`` tag into MW, summing ``;``-separated entries, as PyPSA-Eur does.
+
+    HVDC relations carry their transfer capacity here, e.g. "1000 MW". A
+    value in GW is scaled to MW. Anything that yields no number is NaN.
+    """
+
+    def parse(value: str) -> float:
+        value = value.strip().lower()
+        scale = 1000.0 if "gw" in value else 1.0
+        numbers = [
+            float(part)
+            for part in re.sub(r"[^0-9.;]", "", value).split(";")
+            if re.fullmatch(r"\d+(\.\d+)?", part)
+        ]
+        return sum(numbers) * scale if numbers else np.nan
+
+    return _to_str(column).map(parse).astype(float)
 
 
 def _split_cells(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFrame:
@@ -155,12 +351,12 @@ def _split_cells(df: pd.DataFrame, cols: list[str] | None = None) -> pd.DataFram
 
 
 def _distribute_to_circuits(row: pd.Series) -> str:
-    """Split a row's circuits (or cables/3) evenly across its ``split_elements``."""
+    """Split a row's circuits (or cables per circuit) evenly across its ``split_elements``."""
     circuits: float
     if row["circuits"] != "":
         circuits = int(row["circuits"])
     else:
-        circuits = int(row["cables"]) / 3
+        circuits = int(row["cables"]) / row["_cables_per_circuit"]
     single_circuit = int(max(1, np.floor_divide(circuits, row["split_elements"])))
     return str(single_circuit)
 
@@ -192,7 +388,7 @@ def _drop_duplicate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
 
 
 def _filter_by_voltage(
-    df: pd.DataFrame, min_voltage: float = 220000
+    df: pd.DataFrame, min_voltage: float
 ) -> tuple[pd.DataFrame, Any]:
     """Keep only rows at or above ``min_voltage`` [V]; return the surviving voltage set too."""
     if df.empty:
@@ -224,7 +420,11 @@ def _filter_by_voltage(
 
 
 def _clean_substations(
-    df_substations: pd.DataFrame, list_voltages: Any, dc_hz: str
+    df_substations: pd.DataFrame,
+    list_voltages: Any,
+    dc_hz: str,
+    accepted_ac_hz: list[float],
+    tolerance_hz: float,
 ) -> pd.DataFrame:
     """Split multi-voltage substation rows and normalise each split's frequency.
 
@@ -257,17 +457,17 @@ def _clean_substations(
     )
 
     df_substations = _split_cells(df_substations, cols=["frequency"])
-    bool_invalid_frequency = df_substations.apply(
-        lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
+    return _normalise_frequency(
+        df_substations, dc_hz, accepted_ac_hz, tolerance_hz, "substation elements"
     )
-    df_substations.loc[bool_invalid_frequency, "frequency"] = df_substations.loc[
-        bool_invalid_frequency, "_ac_hz"
-    ]
-    return df_substations
 
 
 def _clean_lines(
-    df_lines: pd.DataFrame, list_voltages: Any, dc_hz: str
+    df_lines: pd.DataFrame,
+    list_voltages: Any,
+    dc_hz: str,
+    accepted_ac_hz: list[float],
+    tolerance_hz: float,
 ) -> pd.DataFrame:
     """Clean lines/cables heuristically, deriving circuits from whatever tags exist.
 
@@ -285,9 +485,22 @@ def _clean_lines(
         _check_voltage, list_voltages=list_voltages
     )
     df_lines = df_lines[bool_voltages]
+    if df_lines.empty:
+        return df_lines
+
+    df_lines["frequency"] = df_lines.apply(_frequency_for_split, axis=1)
+    df_lines = _normalise_frequency(
+        df_lines, dc_hz, accepted_ac_hz, tolerance_hz, "line elements"
+    )
+    if df_lines.empty:
+        return df_lines
 
     bool_ac = df_lines["frequency"] != dc_hz
     bool_dc = ~bool_ac
+    # Three conductors per AC circuit, two per DC circuit, as in PyPSA-Earth's
+    # fill_circuits. The single-cable branches below already split on this;
+    # the multi-voltage branches read it from here.
+    df_lines["_cables_per_circuit"] = np.where(bool_dc, 2, 3)
     bool_invalid_frequency = df_lines.apply(
         lambda row: row["frequency"] not in (row["_ac_hz"], dc_hz), axis=1
     )
@@ -298,6 +511,18 @@ def _clean_lines(
         bool_noinfo & bool_invalid_frequency, "_ac_hz"
     ]
     df_lines.loc[bool_noinfo, "cleaned"] = True
+
+    # An explicit zero means the way carries no live conductor: a ground wire
+    # ("ground") or a retired one ("1 disused"). Every branch below floors the
+    # count at one circuit, so without this the way would enter the network as
+    # a live single-circuit line. PyPSA-Earth reaches the same end by letting
+    # the zero through and dropping it in filter_circuits.
+    bool_no_conductors = (~df_lines["cleaned"]) & (
+        ((df_lines["cables"] == "0") & (df_lines["circuits"] == ""))
+        | (df_lines["circuits"] == "0")
+    )
+    df_lines.loc[bool_no_conductors, "circuits"] = "0"
+    df_lines.loc[bool_no_conductors, "cleaned"] = True
 
     bool_cables_ac = (
         (df_lines["cables"] != "")
@@ -384,7 +609,8 @@ def _clean_lines(
             max(
                 1,
                 np.floor_divide(
-                    int(row["cables"].split(";")[int(row["id"].split("-")[-1]) - 1]), 3
+                    int(row["cables"].split(";")[int(row["id"].split("-")[-1]) - 1]),
+                    row["_cables_per_circuit"],
                 ),
             )
         ),
@@ -403,6 +629,15 @@ def _clean_lines(
     ]
     df_lines.loc[bool_leftover & bool_dc, "frequency"] = dc_hz
     df_lines.loc[bool_leftover, "cleaned"] = True
+
+    df_lines = df_lines.drop(columns=["_cables_per_circuit"])
+    no_conductors = df_lines["circuits"] == "0"
+    if no_conductors.any():
+        logger.info(
+            "Dropping %d line(s) tagged with no live conductor.",
+            int(no_conductors.sum()),
+        )
+        df_lines = df_lines[~no_conductors]
 
     return df_lines
 
@@ -426,20 +661,19 @@ def _create_substations_poi(
 
 
 def _aggregate_substations(df_substations: pd.DataFrame) -> pd.DataFrame:
-    """One row per (original id, voltage, country), even after voltage-splitting."""
+    """One row per (original id, voltage, polarity, country), even after splitting.
+
+    Polarity is part of the key so that a converter station tagged e.g.
+    voltage=320000;320000 frequency=50;0 keeps both its AC and DC side.
+    """
     df_substations = df_substations.copy()
     df_substations["id"] = df_substations["id"].apply(
         lambda x: x.split("-")[0] if "-" in x else x
     )
+    keys = ["id", "voltage", "dc", "country"]
     df_substations = (
-        df_substations.groupby(["id", "voltage", "country"])
-        .agg(
-            {
-                col: "first"
-                for col in df_substations.columns
-                if col not in ["id", "voltage", "country"]
-            }
-        )
+        df_substations.groupby(keys)
+        .agg({col: "first" for col in df_substations.columns if col not in keys})
         .reset_index()
     )
     return df_substations
@@ -474,54 +708,34 @@ def _finalise_substations(df_substations: pd.DataFrame) -> gpd.GeoDataFrame:
         df_substations["contains"] = df_substations["bus_id"].apply(
             lambda x: x.split("-")[0]
         )
-    columns = [
-        "bus_id",
-        "voltage",
-        "country",
-        "under_construction",
-        "start_date",
-        "geometry",
-        "polygon",
-        "contains",
-    ]
-    df_substations = df_substations[columns]
+    df_substations = df_substations[SUBSTATION_COLUMNS]
     if not df_substations.empty:
         df_substations["voltage"] = df_substations["voltage"].astype(int)
     return df_substations
 
 
 def _aggregate_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
-    """One row per (original line_id, voltage), summing circuits across splits."""
+    """One row per (original line_id, voltage, polarity), summing circuits across splits."""
     df_lines = df_lines.copy()
     df_lines["line_id"] = df_lines["line_id"].apply(
         lambda x: x.split("-")[0] if "-" in x else x
     )
+    keys = ["line_id", "voltage", "dc"]
     df_lines = (
-        df_lines.groupby(["line_id", "voltage"])
+        df_lines.groupby(keys)
         .agg(
             {
                 **{
                     col: "first"
                     for col in df_lines.columns
-                    if col not in ["line_id", "voltage", "circuits"]
+                    if col not in [*keys, "circuits"]
                 },
                 "circuits": "sum",
             }
         )
         .reset_index()
     )
-    return df_lines[
-        [
-            "line_id",
-            "circuits",
-            "voltage",
-            "underground",
-            "under_construction",
-            "start_date",
-            "geometry",
-            "contains",
-        ]
-    ]
+    return df_lines[LINE_COLUMNS]
 
 
 def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
@@ -529,18 +743,9 @@ def _finalise_lines(df_lines: pd.DataFrame) -> pd.DataFrame:
     df_lines = df_lines.rename(columns={"id": "line_id", "power": "tag_type"})
     df_lines["underground"] = df_lines["tag_type"] == "cable"
     df_lines["contains"] = df_lines["line_id"].apply(lambda x: [x.split("-")[0]])
-    df_lines = df_lines[
-        [
-            "line_id",
-            "circuits",
-            "voltage",
-            "underground",
-            "under_construction",
-            "start_date",
-            "geometry",
-            "contains",
-        ]
-    ]
+    # Capacity is tagged on HVDC relations, not on their member ways.
+    df_lines["p_nom_mw"] = np.nan
+    df_lines = df_lines[LINE_COLUMNS]
     df_lines["circuits"] = df_lines["circuits"].astype(int)
     df_lines["voltage"] = df_lines["voltage"].astype(int)
     return df_lines
@@ -716,6 +921,46 @@ def _create_line(row: pd.Series) -> tuple[Any, list[str]]:
     return line, members
 
 
+# Relation member roles that carry the conductor itself, as opposed to the
+# terminal substations and electrodes an HVDC relation also lists.
+_LINK_MEMBER_ROLES = ("line", "cable", "section")
+
+
+def _create_single_link(row: pd.Series) -> tuple[Any, list[str]]:
+    """One LineString for an HVDC relation, following PyPSA-Eur's ``_create_single_link``.
+
+    A bipole relation lists each pole as its own member, so merging all
+    members, as ``_create_line`` does for AC, yields parallel parts that
+    never form a single line, and the relation would be discarded. Instead,
+    keep only conductor members, keep one member per pair of endpoints so
+    parallel poles collapse to one, merge, and keep the longest connected
+    part. Every conductor member is still reported, so all of the poles'
+    ways are replaced by the link rather than surviving beside it.
+    """
+    df = pd.json_normalize(row["members"])
+    if "geometry" not in df.columns or "role" not in df.columns:
+        return linemerge([]), []
+    df = df[df["role"].isin(_LINK_MEMBER_ROLES)].dropna(subset=["geometry"])
+    if df.empty:
+        return linemerge([]), []
+    df["ref"] = df["ref"].astype(str)
+    members = ("way/" + df["ref"]).tolist()
+    df["geometry"] = df.apply(_create_linestring, axis=1)
+    df["length"] = df["geometry"].apply(lambda line: line.length)
+    df["endpoints"] = df["geometry"].apply(
+        lambda line: tuple(
+            round(value, 3)
+            for point in sorted([line.coords[0], line.coords[-1]])
+            for value in point
+        )
+    )
+    shortest = df.loc[df.groupby("endpoints")["length"].idxmin()]
+    link = linemerge(shortest["geometry"].tolist())
+    if isinstance(link, MultiLineString):
+        link = max(link.geoms, key=lambda part: part.length)
+    return link, members
+
+
 _LINE_TAG_COLUMNS = [
     "power",
     "cables",
@@ -742,6 +987,7 @@ _RELATION_TAG_COLUMNS = [
     "cables",
     "frequency",
     "voltage",
+    "rating",
     "construction",
     "construction:power",
     "start_date",
@@ -923,13 +1169,65 @@ def _import_substations(
 # ---------------------------------------------------------------------------
 
 
+def _split_country_codes(country: Any) -> list[str]:
+    """Split a country value into individual codes.
+
+    ``_drop_duplicate_lines`` joins the codes of a cross-border element it
+    saw in more than one country's retrieval, so a single value can read
+    ``"BE;NL"``. Looking that up as one key silently misses every regional
+    override, which is why both resolvers below go through here first.
+    """
+    # pd.isna covers None, float nan and pd.NA alike; a bare float check
+    # would let pd.NA through and stringify it into a bogus "<NA>" code.
+    if country is None or pd.isna(country):
+        return []
+    return [code for code in str(country).split(";") if code]
+
+
 def _region_min_voltage(
     country: str, network: dict[str, Any], regions: dict[str, Any]
 ) -> float:
-    """Minimum AC voltage [V] for ``country``: its regional override, else the network default."""
-    override = regions.get(country, {}).get("minimum_voltage_kv")
-    kv = override if override is not None else network["minimum_voltage_kv"]
-    return float(kv) * 1000  # kV -> V
+    """Minimum AC voltage [V] for ``country``: its regional override, else the network default.
+
+    For a cross-border element the most permissive threshold wins, so an
+    interconnector survives whenever either side would keep it.
+    """
+    thresholds = [
+        regions.get(code, {}).get("minimum_voltage_kv") or network["minimum_voltage_kv"]
+        for code in _split_country_codes(country)
+    ] or [network["minimum_voltage_kv"]]
+    return float(min(thresholds)) * 1000  # kV -> V
+
+
+def _above_voltage_floor(
+    df: pd.DataFrame, network: dict[str, Any], regions: dict[str, Any], dc_hz: str
+) -> pd.Series:
+    """True where a row meets its own floor: the DC floor for DC, the regional AC floor otherwise.
+
+    Rows must already carry a normalised ``frequency``. This runs after an
+    initial filter at the lowest floor in play (see ``_lowest_voltage_floor``),
+    so that neither a lower regional AC floor nor the DC floor is cut off
+    by the global AC one first.
+    """
+    ac_floor = df["country"].map(lambda c: _region_min_voltage(c, network, regions))
+    dc_floor = network["minimum_voltage_dc_kv"] * 1000
+    floor = ac_floor.where(df["frequency"] != dc_hz, dc_floor)
+    return df["voltage"].astype(int) >= floor
+
+
+def _lowest_voltage_floor(network: dict[str, Any], regions: dict[str, Any]) -> float:
+    """The lowest voltage [V] any row could be kept at: global AC, any regional AC, or DC."""
+    regional = [
+        region.get("minimum_voltage_kv")
+        for region in regions.values()
+        if region.get("minimum_voltage_kv")
+    ]
+    return (
+        min(
+            [network["minimum_voltage_kv"], network["minimum_voltage_dc_kv"], *regional]
+        )
+        * 1000
+    )
 
 
 def _format_hz(value: float) -> str:
@@ -945,11 +1243,32 @@ def _region_ac_hz(
     DC has no equivalent per-country override: OSM always tags DC as
     ``frequency=0`` worldwide, so unlike AC (50 Hz vs 60 Hz by continent)
     it isn't something a region should need to change.
+
+    A cross-border element names more than one country. An AC line only ever
+    runs at one frequency, so disagreeing neighbours mean either a config
+    error or a tie that isn't a plain AC line; the lowest value is taken so
+    the result is deterministic, and the conflict is logged once.
     """
-    frequency_override = regions.get(country, {}).get("frequency_hz") or {}
-    override = frequency_override.get("AC")
-    hz = override if override is not None else network["frequency_hz"]["AC"]
-    return _format_hz(hz)
+    values = []
+    for code in _split_country_codes(country):
+        override = (regions.get(code, {}).get("frequency_hz") or {}).get("AC")
+        values.append(
+            override if override is not None else network["frequency_hz"]["AC"]
+        )
+    if not values:
+        values = [network["frequency_hz"]["AC"]]
+
+    unique = sorted(set(values))
+    if len(unique) > 1 and country not in _AC_FREQUENCY_CONFLICTS:
+        _AC_FREQUENCY_CONFLICTS.add(country)
+        logger.warning(
+            "Countries %s disagree on AC frequency (%s Hz); using %s Hz for the "
+            "elements they share.",
+            _split_country_codes(country),
+            unique,
+            unique[0],
+        )
+    return _format_hz(unique[0])
 
 
 def clean(
@@ -967,8 +1286,15 @@ def clean(
     ``include_relations`` is off) is simply skipped.
     """
     crs = geo_crs
-    min_voltage_ac = network["minimum_voltage_kv"] * 1000  # V
+    # Admit everything down to the lowest floor in play; each row's own
+    # floor (regional AC, or DC) is applied once its polarity is known.
+    lowest_floor = _lowest_voltage_floor(network, regions)  # V
     dc_hz = _format_hz(network["frequency_hz"]["DC"])
+    dc_lines = network["dc_lines"]
+    frequency_options = {
+        "accepted_ac_hz": network["accepted_ac_frequencies_hz"],
+        "tolerance_hz": network["frequency_tolerance_hz"],
+    }
 
     # --- Substations -------------------------------------------------
     logger.info("Importing substations.")
@@ -978,8 +1304,13 @@ def clean(
         inputs.get("substations_relation", []),
     )
     if df_substations.empty:
-        empty_buses = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
-        empty_polygons = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
+        # Same columns as the populated path: build_network selects polygons
+        # by bus_id before it checks for empty input, so a geometry-only
+        # frame would fail there for a country with no substations.
+        empty_buses = _empty_frame(
+            [c for c in SUBSTATION_COLUMNS if c not in ("geometry", "polygon")], crs
+        )
+        empty_polygons = _empty_frame(["bus_id", "voltage"], crs)
     else:
         df_substations["voltage"] = _clean_voltage(df_substations["voltage"])
         df_substations["under_construction"] = (
@@ -989,22 +1320,28 @@ def clean(
         )
         df_substations["start_date"] = _clean_date(df_substations["start_date"])
 
+        df_substations["converter"] = _to_str(
+            df_substations["substation"]
+        ).str.contains("converter")
         df_substations, list_voltages = _filter_by_voltage(
-            df_substations, min_voltage=min_voltage_ac
+            df_substations, min_voltage=lowest_floor
         )
         df_substations["frequency"] = _clean_frequency(df_substations["frequency"])
         df_substations["_ac_hz"] = df_substations["country"].map(
             lambda c: _region_ac_hz(c, network, regions)
         )
-        df_substations = _clean_substations(df_substations, list_voltages, dc_hz)
-
-        # Regional per-country minimum voltage override.
-        row_min = df_substations["country"].map(
-            lambda c: _region_min_voltage(c, network, regions)
+        df_substations = _clean_substations(
+            df_substations, list_voltages, dc_hz, **frequency_options
         )
+        # A DC substation element only means something while DC lines are
+        # kept; otherwise it stays an ordinary bus, as it was before DC
+        # support existed.
         df_substations = df_substations[
-            df_substations["voltage"].astype(int) >= row_min
+            _above_voltage_floor(df_substations, network, regions, dc_hz)
         ]
+        df_substations["dc"] = (df_substations["frequency"] == dc_hz) & (
+            dc_lines == "keep"
+        )
 
         # Nodes (earth-osm/Geofabrik-only, or our own overpass addition) skip
         # the polygon-only pipeline (touching-polygon merge, PoI, line-
@@ -1018,7 +1355,9 @@ def clean(
             df_way = df_way.drop(columns=["is_node"])
             df_way = _create_substations_geometry(df_way)
             df_way = _merge_touching_polygons(df_way, crs=crs)
-            df_way = _create_substations_poi(df_way)
+            df_way = _create_substations_poi(
+                df_way, tol=network["station_merge_radius_m"] / 2
+            )
 
         if not df_node.empty:
             df_node = df_node.drop(columns=["is_node"])
@@ -1057,18 +1396,32 @@ def clean(
             df_relation["start_date"] = _clean_date(df_relation["start_date"])
             df_relation["voltage"] = _clean_voltage(df_relation["voltage"])
             df_relation, list_voltages = _filter_by_voltage(
-                df_relation, min_voltage=min_voltage_ac
+                df_relation, min_voltage=lowest_floor
             )
             if not df_relation.empty:
                 df_relation["frequency"] = _clean_frequency(df_relation["frequency"])
-                df_relation = df_relation[df_relation["frequency"] != dc_hz]
                 df_relation["_ac_hz"] = df_relation["country"].map(
                     lambda c: _region_ac_hz(c, network, regions)
                 )
-                df_relation["frequency"] = df_relation["_ac_hz"]
                 df_relation["circuits"] = _clean_circuits(df_relation["circuits"])
                 df_relation["cables"] = _clean_cables(df_relation["cables"])
-                df_relation = _clean_lines(df_relation, list_voltages, dc_hz)
+                df_relation = _clean_lines(
+                    df_relation, list_voltages, dc_hz, **frequency_options
+                )
+                df_relation = df_relation[
+                    _above_voltage_floor(df_relation, network, regions, dc_hz)
+                ]
+                # PyPSA-Eur's relationship concept: an HVDC relation is one
+                # link, whatever its poles and sections, rated by its tag.
+                # Decided before dc_lines is applied, since force_ac relabels
+                # the frequency but the relation is still physically a bipole.
+                df_relation["_hvdc"] = df_relation["frequency"] == dc_hz
+                df_relation["p_nom_mw"] = _clean_rating(df_relation["rating"]).where(
+                    df_relation["_hvdc"]
+                )
+                df_relation = _apply_dc_lines_mode(
+                    df_relation, dc_lines, dc_hz, "route relations"
+                )
                 df_relation = df_relation.drop(
                     columns=[
                         "voltage_original",
@@ -1078,13 +1431,13 @@ def clean(
                     ]
                 )
 
-                row_min = df_relation["country"].map(
-                    lambda c: _region_min_voltage(c, network, regions)
-                )
-                df_relation = df_relation[df_relation["voltage"].astype(int) >= row_min]
-
             if not df_relation.empty:
-                components = df_relation.apply(_create_line, axis=1)
+                components = df_relation.apply(
+                    lambda row: (
+                        _create_single_link(row) if row["_hvdc"] else _create_line(row)
+                    ),
+                    axis=1,
+                )
                 df_relation["geometry"] = components.apply(lambda x: x[0])
                 df_relation["contains"] = components.apply(lambda x: x[1])
 
@@ -1106,21 +1459,10 @@ def clean(
                 df_relation = df_relation.rename(columns={"id": "line_id"})
                 df_relation["circuits"] = df_relation["circuits"].astype(int)
                 df_relation["voltage"] = df_relation["voltage"].astype(int)
+                # Set from the member ways' own power tag once they are read.
                 df_relation["underground"] = False
-                lines_frames.append(
-                    df_relation[
-                        [
-                            "line_id",
-                            "circuits",
-                            "voltage",
-                            "underground",
-                            "under_construction",
-                            "start_date",
-                            "geometry",
-                            "contains",
-                        ]
-                    ]
-                )
+                relation_lines = df_relation[LINE_COLUMNS].copy()
+                lines_frames.append(relation_lines)
 
     # --- AC lines/cables via individual ways ---------------------------
     logger.info("Importing lines and cables.")
@@ -1129,6 +1471,15 @@ def clean(
     )
     if not df_lines.empty:
         df_lines = _drop_duplicate_lines(df_lines)
+        # A relation is assumed to be underground when all its member ways
+        # are cables (originates from PyPSA-Eur)
+        # TODO: check applicability on the global scale
+        if lines_frames:
+            way_power = df_lines.set_index("id")["power"]
+            relation_lines["underground"] = relation_lines["contains"].apply(
+                lambda ways: set(way_power.reindex(ways).dropna()) == {"cable"}
+            )
+            lines_frames[0] = relation_lines
         len_before = len(df_lines)
         df_lines = df_lines[~df_lines["id"].isin(ways_to_replace)]
         logger.info(
@@ -1144,9 +1495,7 @@ def clean(
             | (df_lines["power"] == "construction")
         )
         df_lines["start_date"] = _clean_date(df_lines["start_date"])
-        df_lines, list_voltages = _filter_by_voltage(
-            df_lines, min_voltage=min_voltage_ac
-        )
+        df_lines, list_voltages = _filter_by_voltage(df_lines, min_voltage=lowest_floor)
 
     if not df_lines.empty:
         df_lines["circuits"] = _clean_circuits(df_lines["circuits"])
@@ -1156,21 +1505,9 @@ def clean(
         df_lines["_ac_hz"] = df_lines["country"].map(
             lambda c: _region_ac_hz(c, network, regions)
         )
-        df_lines = _clean_lines(df_lines, list_voltages, dc_hz)
-
-        len_before = len(df_lines)
-        df_lines = df_lines[df_lines["frequency"] != dc_hz]
-        logger.info(
-            "Dropped %d DC lines. Keeping %d AC lines.",
-            len_before - len(df_lines),
-            len(df_lines),
-        )
-
-    if not df_lines.empty:
-        row_min = df_lines["country"].map(
-            lambda c: _region_min_voltage(c, network, regions)
-        )
-        df_lines = df_lines[df_lines["voltage"].astype(int) >= row_min]
+        df_lines = _clean_lines(df_lines, list_voltages, dc_hz, **frequency_options)
+        df_lines = df_lines[_above_voltage_floor(df_lines, network, regions, dc_hz)]
+        df_lines = _apply_dc_lines_mode(df_lines, dc_lines, dc_hz, "lines/cables")
 
     if not df_lines.empty:
         df_lines = _create_lines_geometry(df_lines)
@@ -1183,10 +1520,14 @@ def clean(
         clean_lines = gpd.GeoDataFrame(df_lines_all, geometry="geometry", crs=crs)
         clean_lines = _remove_lines_within_substations(clean_lines, substation_polygons)
         if not clean_lines.empty and not substation_polygons.empty:
-            clean_lines = _extend_lines_to_substations(clean_lines, substation_polygons)
+            clean_lines = _extend_lines_to_substations(
+                clean_lines,
+                substation_polygons,
+                tol=network["station_merge_radius_m"] / 2,
+            )
         clean_lines = gpd.GeoDataFrame(clean_lines, geometry="geometry", crs=crs)
     else:
-        clean_lines = gpd.GeoDataFrame(geometry=gpd.GeoSeries([], crs=crs), crs=crs)
+        clean_lines = _empty_frame([c for c in LINE_COLUMNS if c != "geometry"], crs)
 
     if "polygon" in substation_polygons.columns:
         substation_polygons = substation_polygons.drop(columns=["geometry"])
