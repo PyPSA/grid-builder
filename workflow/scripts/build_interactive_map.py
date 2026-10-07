@@ -91,6 +91,7 @@ def line_colors(voltages: pd.Series) -> list[list[int]]:
 def path_layer(
     frame: gpd.GeoDataFrame,
     name: str,
+    *,
     color: list[int] | str,
     geo_crs: str,
     distance_crs: str,
