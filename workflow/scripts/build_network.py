@@ -109,7 +109,7 @@ def _non_geometry(columns: list[str]) -> list[str]:
 
 
 def _merge_country_codes(values: Any) -> str:
-    """Clean-up country codes for multy-country entries.
+    """Clean-up country codes for multi-country entries.
 
     This is essential for cross-border elements.
     """
