@@ -21,8 +21,8 @@
 # identical to the reference.
 #
 # NB PyPSA-Earth's float artefacts ("50.0" -> "50") are deliberately not ported,
-# as they should be covered by earth_osm's GeoJSON round-trip usaga of raw OSM
-# strings (TODO may need some additional checking).
+# as they should be covered by earth_osm's GeoJSON round-trip usage of raw OSM
+# strings. (TODO may need some additional checking).
 #
 # NB2 PyPSA-Eur applies "low"/"minor"/"medium"/"med"/"m"/"high" as substring 
 # replacements,but they're meant to catch a tag whose *entire* value is that
@@ -31,26 +31,28 @@
 
 voltage:
   - lower: true
+
   - replace: ["400/220/110 kV'", "400000;220000;110000"]
   - replace: ["400/220/110/20_kv", "400000;220000;110000;20000"]
   - replace: ["2x25000", "25000;25000"]
+
   - replace: ["é", ";"]
   - replace: ["kvv/", ""]
   - replace: ["11000l400", "11000"]
   - replace: ["(temp 150000)", ""]
+  - exact: ["19.1 kv", "19100"]
+  - exact: ["2*220000", "220000;220000"]
+  - exact: ["kv30", "30000"]
+  - replace: ["23000-109000", "109000"]
+  - replace: ["380000>220000", "380000;220000"]  
+
   - exact: ["low", "1000"]
   - exact: ["minor", "1000"]
   - exact: ["medium", "33000"]
   - exact: ["med", "33000"]
   - exact: ["m", "33000"]
   - exact: ["high", "150000"]
-  # earth: repl_voltage. Must precede the "kv" -> "000" step below, which
-  # would otherwise read "19.1 kv" as 191000 instead of 19100.
-  - exact: ["19.1 kv", "19100"]
-  - exact: ["2*220000", "220000;220000"]
-  - exact: ["kv30", "30000"]
-  - replace: ["23000-109000", "109000"]
-  - replace: ["380000>220000", "380000;220000"]
+
   - replace: [":", ";"]
   - replace: ["<", ";"]
   - replace: [",", ";"]
@@ -62,15 +64,18 @@ circuits:
   - replace: ["partial", ""]
   - replace: ["1operator=RTE operator:wikidata=Q2178795", ""]
   - lower: true
+
   - replace: ["1,5", "3"]
   - replace: ["1/3", "1"]
-  # earth: repl_circuits. "2/3" and "2-1" would strip to 23 and 21.
+  # TODO Correct parsing may need some additonal checking
   - exact: ["2/3", "2"]
   - exact: ["2-1", "2"]
+
   - exact: ["1;1 disused", "1;0"]
   - exact: ["single", "1"]
   - exact: ["1.", "1"]
-  # A typo still means at least one circuit, per PyPSA-Earth's comment.
+
+  # Keep `1` as a default for circuits
   - exact: ["`", "1"]
   - exact: ["^1", "1"]
   - exact: ["e", "1"]
@@ -80,8 +85,7 @@ cables:
   - lower: true
   - replace: ["1/3", "1"]
   - replace: ["3x2;2", "3"]
-  # earth: repl_cables. Every arithmetic form below would otherwise strip to
-  # a concatenation: "3+3" to 33 cables, "6+1" to 61, "2x3" to 23.
+  # TODO Correct parsing may need some additonal checking
   - exact: ["3+3", "6"]
   - exact: ["6+1", "6"]
   - exact: ["2x3", "6"]
@@ -89,10 +93,12 @@ cables:
   - exact: ["2x2", "4"]
   - exact: ["2-1", "3"]
   - exact: ["1 (looped - haul & return) + 1 power wire", "1"]
-  # Zero live conductors: the way is a ground wire or a retired cable.
+
+  # Zero live conductors mean the way is a ground wire or a retired cable
   - exact: ["1 disused", "0"]
   - exact: ["ground", "0"]
   - exact: ["3;3 disused", "3;0"]
+
   - exact: ["single", "1"]
   - exact: ["triple", "3"]
   - exact: ["line", "1"]
@@ -119,17 +125,18 @@ wires:
 
 frequency:
   - lower: true
+
   - replace: ["16.67", "16.7"]
   - replace: ["16,7", "16.7"]
   - replace: ["?", ""]
   - replace: ["hz", ""]
   - replace: [" ", ""]
-  # earth: repl_freq. Two traction entries run together; left alone this
-  # parses as no number at all instead of two 16.7 Hz circuits.
+
   - exact: ["50;50;16.716.7", "50;50;16.7;16.7"]
 
 date:
   - lower: true
+
   - replace: ["unknown", ""]
   - replace: ["approx", ""]
   - replace: ["c.", ""]
