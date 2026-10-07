@@ -133,10 +133,6 @@ def _strip_to(column: pd.Series, tag: str, allowed: str) -> pd.Series:
     the values it could not map, so log them here too instead of silently
     turning a tag into a plausible but wrong number.
     """
-    # Only characters sitting *between* digits are reported: those are the ones
-    # whose removal splices two numbers into one ("2x3" -> 23). A stray unit or
-    # bracket at either end ("220000 V") strips away harmlessly and would
-    # otherwise drown the real signal in noise.
     leftover = column[column.str.contains(f"[0-9][^{allowed}]+[0-9]", regex=True)]
     if not leftover.empty:
         counts = leftover.value_counts()
