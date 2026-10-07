@@ -25,7 +25,7 @@ from ruamel.yaml.comments import CommentedMap
 
 _VALID_REGIONS: frozenset[str] = frozenset(get_all_valid_codes())
 
-#: The fixed set of raw OSM features to enable compartibility with custom data.
+# The fixed set of raw OSM features to enable compatibility with custom data.
 OSM_FEATURES: tuple[str, ...] = (
     "lines_way",
     "cables_way",
