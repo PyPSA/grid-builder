@@ -23,7 +23,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
-from scripts._helpers import BUS_TOL, configure_logging
+from _helpers import BUS_TOL, configure_logging
 from shapely import get_point
 from shapely.algorithms.polylabel import polylabel
 from shapely.geometry import LineString, MultiLineString, Point
@@ -940,7 +940,7 @@ def _write_components(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("build_network")
 

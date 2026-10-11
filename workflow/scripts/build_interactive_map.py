@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import geopandas as gpd
 import pandas as pd
 import pydeck as pdk
-from scripts._helpers import configure_logging, load_internal_yaml
+from _helpers import configure_logging, load_internal_yaml
 
 if TYPE_CHECKING:
     snakemake: Any
@@ -1080,7 +1080,7 @@ def compress_html(page: str) -> str:
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("build_interactive_map")
     configure_logging(snakemake.log[0])

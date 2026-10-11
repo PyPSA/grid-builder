@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from scripts._helpers import BUS_TOL, configure_logging, load_internal_yaml
+from _helpers import BUS_TOL, configure_logging, load_internal_yaml
 from shapely.algorithms.polylabel import polylabel
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import linemerge, unary_union
@@ -1197,7 +1197,7 @@ def clean(
 
 if __name__ == "__main__":
     if "snakemake" not in globals():
-        from scripts._helpers import mock_snakemake
+        from _helpers import mock_snakemake
 
         snakemake = mock_snakemake("clean")
 

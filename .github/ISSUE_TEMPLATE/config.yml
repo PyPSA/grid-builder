@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Modelblocks project website
+    url: https://www.modelblocks.org/
+    about: Consult our website for general information on our initiative.
+  - name: Documentation
+    url: https://modelblocks.readthedocs.io/
+    about: Read our documentation for general questions and guidelines.
+  - name: Community chat
+    url: https://calliope-modelblocks.zulipchat.com
+    about: Reach out to our community on our official Zulip chat.

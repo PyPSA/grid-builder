@@ -7,7 +7,7 @@
 Logging setup, internal data loading, shared geometry constants, and
 mock_snakemake for testing.
 
-Other scripts import this module as ``from scripts._helpers import ...``,
+Other scripts import this module as ``from _helpers import ...``,
 not ``workflow.scripts._helpers``. That plain form resolves in both places
 these scripts run: under a real
 Snakemake ``script:`` execution, Snakemake puts ``workflow/`` on ``sys.path``

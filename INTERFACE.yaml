@@ -1,4 +1,6 @@
 # Module Input-Output structure for automated docs generation
+convention_version: v1.0.0
+
 pathvars:
   snakemake_defaults:
     logs:
@@ -6,14 +8,16 @@ pathvars:
       description: location of snakemake log files.
     resources:
       default: "<resources>"
-      description: >-
-        Raw OSM files are written to retrieve/{country}_{feature}.json.
-        Clean features are written below clean; generic network outputs
-        below build (buses/lines/transformers as CSV under build/csv
-        and GeoJSON, including substation polygons, under build/geojson).
-        An interactive PyDeck map of the network, and the default target
-        of this workflow, is written to map.html.
+      description: "location of module resource (input) files."
     results:
       default: "<results>"
-      description: location of module result files.
-  user_resources: {}
+      description: "location of module result (output) files."
+  retrieve:
+    default: <retrieve>
+    description: >-
+      Raw OSM files are written to retrieve/{country}_{feature}.json.
+      Clean features are written below clean; generic network outputs
+      below build (buses/lines/transformers as CSV under build/csv
+      and GeoJSON, including substation polygons, under build/geojson).
+      An interactive PyDeck map of the network, and the default target
+      of this workflow, is written to map.html.

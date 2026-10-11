@@ -58,7 +58,7 @@ elif config["retrieve"]["source"] == "overpass":
         threads: 1
         params:
             include_relations=config["network"]["include_relations"],
-            overpass_api=config["retrieve"]["overpass_api"].model_dump(mode="json"),
+            overpass_api=config["retrieve"]["overpass_api"],
         message:
             "Retrieve OSM power features for one country from the Overpass API."
         script:

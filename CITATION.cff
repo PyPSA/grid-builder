@@ -2,11 +2,12 @@
 # For more information, see:
 # https://citation-file-format.github.io/
 cff-version: 1.2.0
-message: "If you use this software or data produced by it, please cite it using the metadata from this file."
+message: If you use this software or data produced by it, please cite it using the metadata from this file.
 title: "grid-builder: Global power grid builder"
 repository: "https://github.com/PyPSA/grid-builder"
-license: "MIT"
+license: MIT
 authors:
   - given-names: "Bobby"
     family-names: "Xiong"
+    email: "xiong@tu-berlin.de"
     orcid: "https://orcid.org/0000-0003-2854-0730"

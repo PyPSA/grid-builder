@@ -1,7 +1,7 @@
 [workspace]
 name = "grid_builder"
 authors = ["See AUTHORS file"]
-description = "A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure."
+description = "A modular Snakemake workflow for constructing and validating power grid models using OpenStreetMap data."
 license = "MIT"
 readme = "README.md"
 channels = ["conda-forge", "bioconda"]
@@ -9,12 +9,13 @@ platforms = ["win-64", "linux-64", "osx-arm64"]
 homepage = "https://www.modelblocks.org/"
 
 [dependencies]
-clio-tools = ">=2026.03.30"
+clio-tools = ">=2026.06.23"
 conda = ">=25.0.0"
 ipdb = ">=0.13.13"
 ipykernel = ">=6.29.5"
 pydantic = ">=2.0"
 "ruamel.yaml" = ">=0.18"
+jsonschema = ">=4.0.0"
 mypy = ">=1.15.0"
 pytest = ">=8.3.5"
 python = ">=3.12,<3.13"
@@ -24,6 +25,8 @@ ruff = ">=0.9.9"
 snakefmt = ">=0.10.2"
 snakemake-minimal = ">=9.19.0"
 pytz = ">=2026.1.post1"
+
+[feature.module.dependencies]
 earth-osm = ">=3.0.2"
 geopandas = ">=1.0,<2"
 networkx = ">=3,<4"
@@ -37,6 +40,9 @@ requests = ">=2,<3"
 shapely = ">=2,<3"
 pre-commit = ">=4.6.2,<5"
 
+[environments]
+module = { features = ["module"], no-default-feature = true }
+
 [tasks]
 test = {cmd = "pytest tests"}
 test-integration = {cmd = "pytest tests/integration_test.py"}
@@ -44,3 +50,27 @@ generate-config = {cmd = "python workflow/scripts/_schema.py"}
 check-python = {cmd = "ruff check workflow/scripts tests && ruff format --check workflow/scripts tests && mypy workflow/scripts"}
 check-workflow = {cmd = "snakefmt --check workflow tests/integration/Snakefile && snakemake --lint --snakefile workflow/Snakefile && snakemake --lint --snakefile tests/integration/Snakefile"}
 lint = {depends-on = ["check-python", "check-workflow"]}
+
+[tasks.export-snakemake-env]
+description = "Export one Pixi environment as Snakemake-compatible conda files"
+args = ["env", { arg = "outdir", default = "workflow/envs" }]
+depends-on = [
+  { task = "_export-snakemake-pin", args = ["{{ env }}", "win-64", "{{ outdir }}"] },
+  { task = "_export-snakemake-pin", args = ["{{ env }}", "linux-64", "{{ outdir }}"] },
+  { task = "_export-snakemake-pin", args = ["{{ env }}", "osx-arm64", "{{ outdir }}"] },
+]
+cmd = "pixi workspace export conda-environment --environment '{{ env }}' '{{ outdir }}/{{ env }}.yaml'"
+
+[tasks._export-snakemake-pin]
+description = "Export one Pixi environment/platform as a Snakemake-compatible pin file"
+args = ["env", "platform", "outdir"]
+depends-on = [
+  { task = "_export-conda-explicit-spec", args = ["{{ env }}", "{{ platform }}", "{{ outdir }}"] },
+]
+cmd = "mv '{{ outdir }}/{{ env }}_{{ platform }}_conda_spec.txt' '{{ outdir }}/{{ env }}.{{ platform }}.pin.txt'"
+
+[tasks._export-conda-explicit-spec]
+description = "Export one Pixi environment/platform as an explicit conda spec file"
+args = ["env", "platform", "outdir"]
+cmd = "pixi workspace export conda-explicit-spec --environment '{{ env }}' --platform '{{ platform }}' '{{ outdir }}'"
+

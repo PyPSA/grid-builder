@@ -18,8 +18,8 @@ rule build_interactive_map:
         "../envs/network.yaml"
     threads: 1
     params:
-        crs=config["crs"].model_dump(mode="json"),
-        interactive_map=config["interactive_map"].model_dump(mode="json"),
+        crs=config["crs"],
+        interactive_map=config["interactive_map"],
     message:
         "Building an interactive OSM network map."
     script:

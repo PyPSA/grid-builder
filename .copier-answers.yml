@@ -1,13 +1,18 @@
 # Changes here will be overwritten by Copier
 # !!!!! DO NOT MANUALLY MODIFY THIS FILE !!!!!
-_commit: latest
+_commit: v1.0.3
 _src_path: https://github.com/modelblocks-org/data-module-template.git
-author_email: xiong@tu-berlin.de
-author_family_name: Xiong
-author_given_name: Bobby
+authors:
+-   email: xiong@tu-berlin.de
+    family_name: Xiong
+    given_name: Bobby
 github_org: PyPSA
 license: MIT
+maintainers:
+-   email: xiong@tu-berlin.de
+    family_name: Xiong
+    given_name: Bobby
+module_code_name: grid_builder
 module_description: A modular Snakemake workflow for constructing and validating power
     grid models using OpenStreetMap data.
-module_long_name: Global power grid builder
-module_short_name: grid_builder
+module_human_name: Global power grid builder

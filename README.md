@@ -1,7 +1,8 @@
 # grid-builder
 
-A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
+A modular Snakemake workflow for constructing and validating power grid models using OpenStreetMap data.
 
+<!-- Place an attractive image of module outputs here -->
 <p align="center">
   <img src="./figures/example.png" width="75%">
 </p>
@@ -11,16 +12,20 @@ A modular Snakemake workflow for retrieving OpenStreetMap power infrastructure.
 </p>
 
 ## About
+<!-- Please do not modify this templated section -->
 
-`grid-builder` is a modular `snakemake` workflow that retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. It can be imported into another `snakemake` workflow.
+This is a modular `snakemake` workflow created as part of the [Modelblocks project](https://www.modelblocks.org/). It can be imported directly into any `snakemake` workflow.
 
-The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
-
-This module follows the Modelblocks conventions (https://www.modelblocks.org). For more information, consult the [integration example](./tests/integration/Snakefile) and the `snakemake` [modularisation documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/modularization.html).
+For more information, please consult the Modelblocks [documentation](https://modelblocks.readthedocs.io/en/latest/),
+the [integration example](./tests/integration/Snakefile),
+and the `snakemake` [documentation](https://snakemake.readthedocs.io/en/stable/snakefiles/modularization.html).
 
 ## Overview
+<!-- Please describe the processing stages of this module here -->
 
-Currently implemented:
+`grid-builder` retrieves OpenStreetMap power infrastructure and builds a generic high-voltage network. The workflow retains AC substations, overhead lines, and cables at configured voltage levels, then creates generic buses, connected line segments, and voltage-pair transformers. The outputs preserve OSM provenance and geometry but contain no PyPSA-specific line types, capacities, or electrical-component assumptions.
+
+Data processing steps:
 
 1. Retrieve OSM substations, lines, cables, and (optionally) circuit relations by country, either from a cached local Geofabrik PBF extract or the live Overpass API.
 2. Clean the raw retrieval output, filtering voltage, frequency, construction status, and future assets, and grouping relation member ways into one line per real-world circuit.
@@ -28,10 +33,12 @@ Currently implemented:
 4. Build a self-contained interactive map of the resulting network (`map.html`), with layer toggles, voltage/text filtering, and click-through OSM links — this is the workflow's default target.
 
 ## Configuration
+<!-- Please describe how to configure this module below -->
 
-Configuration lives in [`config/config.yaml`](./config/config.yaml), validated against a generated JSON schema. See the configuration [README](./config/README.md) for the available controls, including retrieval backends, regional overrides, and personal/local settings.
+Please consult the configuration [README](./config/README.md) and the [configuration example](./config/config.yaml) for a general overview on the configuration options of this module.
 
 ## Input / output structure
+<!-- Please describe input / output file placement below -->
 
 Please consult the [interface file](./INTERFACE.yaml) for more information.
 
@@ -56,6 +63,7 @@ DC assets (links, converters, switching stations) are out of scope: this workflo
 builds a generic AC topology only, with no PyPSA-specific line types or capacities.
 
 ## Development
+<!-- Please do not modify this templated section -->
 
 We use [`pixi`](https://pixi.sh/) as our package manager for development.
 Once installed, run the following to clone this repository and install all dependencies.
@@ -63,8 +71,23 @@ Once installed, run the following to clone this repository and install all depen
 ```shell
 git clone git@github.com:PyPSA/grid-builder.git
 cd grid-builder
-pixi install --locked
+pixi install --all
 ```
+
+Please be aware that this is a multi-environment project (see [pixi.toml](./pixi.toml) for details).
+- `default`: used for development and integration testing.
+Because it contains `Snakemake`, `conda` and `pytest` as dependencies it **should not be used** in `Snakemake` rules.
+- `module`: contains minimal dependencies used in `Snakemake` rules.
+If modified, be sure to export it to `Snakemake` so it can be recreated by module users:
+
+```shell
+# create module.yaml and conda-spec pin files in workflow/envs/
+pixi run export-snakemake-env module
+```
+
+
+## Testing
+<!-- Please do not modify this templated section -->
 
 For testing, simply run:
 
@@ -76,9 +99,9 @@ pixi run --locked test
 To test a minimal example of a workflow using this module:
 
 ```shell
-pixi shell                          # activate this project's environment
-cd tests/integration/               # navigate to the integration example
-snakemake --use-conda --cores 2      # run the workflow!
+pixi shell    # activate this project's environment
+cd tests/integration/  # navigate to the integration example
+snakemake --use-conda --cores 2  # run the workflow!
 ```
 
 The Pixi environment supplies Snakemake and the configuration-validation
@@ -104,8 +127,24 @@ rebuild the installed environment with `pixi reinstall --locked`.
 
 `grid-builder` is released as free software under the [MIT](LICENSE) license. Different licenses and terms of use may apply to input data, e.g. OpenStreetMap data is subject to the [Open Database License](https://opendatacommons.org/licenses/odbl).
 
-## References & related work
+## References
+<!-- Please provide thorough referencing below -->
+
+This module is based on the following research and datasets:
 
 * Jonas Hörsch et al. 2018. PyPSA-Eur: An open optimisation model of the European transmission system, *Energy Strategy Reviews*, Volume 22. https://doi.org/10.1016/j.esr.2018.08.012
 * Maximilian Parzen et al. 2023. PyPSA-Earth: A new global open energy system optimization model demonstrated in Africa, *Applied Energy*, Volume 341. https://doi.org/10.1016/j.apenergy.2023.121096
 * Bobby Xiong et al. 2025. Modelling the high-voltage grid using open data for Europe and beyond. *Sci Data* 12, 277. https://doi.org/10.1038/s41597-025-04550-7
+
+## Contributors ✨
+
+Thanks goes to these wonderful people, sorted alphabetically ([emoji key](https://allcontributors.org/en/reference/emoji-key/)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!

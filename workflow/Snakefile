@@ -1,32 +1,36 @@
-import sys
-from pathlib import Path
-
 import yaml
-from snakemake.utils import min_version
 
-sys.path.insert(0, workflow.basedir)
-from scripts._schema import load_region_configs, validate_config
+from snakemake.utils import min_version, validate
 
 min_version("9.19")
 
 
-# Define pathvars to expose OSM retrieval outputs for downstream use.
+# !!!!! IMPORTANT !!!!!
+# Define pathvars for all user resource files and result files
+# This allows users to re-wire how the module is used in their workflow with ease.
 pathvars:
     # OSM retrieval outputs by country and feature
     osm_retrieve="<resources>/retrieve",
 
 
-# Default configuration file generated from pydantic schema.
+# Load the example configuration. This will be overridden by users.
 configfile: workflow.source_path("../config/config.yaml")
 
 
-config = validate_config(
-    load_region_configs(config, Path(workflow.basedir).parent / "config" / "regions")
-)
+# Validate the configuration using the schema file.
+validate(config, workflow.source_path("internal/config.schema.yaml"))
+
 
 # Load internal settings separately so users cannot modify them.
 with open(workflow.source_path("internal/settings.yaml"), "r") as f:
     internal = yaml.safe_load(f)
+
+# Load python files in scripts that are used in other scripts, but not run itself.
+# This is necessary for integrating the snakemake module via reference to GitHub.
+workflow.source_path("scripts/_helpers.py")
+workflow.source_path("scripts/_schema.py")
+workflow.source_path("internal/colors.yaml")
+workflow.source_path("internal/tag_corrections.yaml")
 
 
 include: "rules/retrieve.smk"
